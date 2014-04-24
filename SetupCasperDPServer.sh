@@ -783,7 +783,7 @@ rwuser  admin
 # rocommunity: a SNMPv1/SNMPv2c read-only access community name
 #   arguments:  community [default|hostname|network/bits] [oid]
 
-rocommunity  ual_cacti_monitor #default .1.3.6.1.2.1.1.4
+rocommunity  snmpmonitor #default .1.3.6.1.2.1.1.4
 
 ###########################################################################
 # SECTION: Extending the Agent
