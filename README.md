@@ -27,3 +27,10 @@ Six plus hours over 100Mb network are not unheard of for this, especially given 
 
 I HIGHLY encourage you to go through the script for your own customisations. I've sanitised the script to
 remove all references from where I work ;)
+
+Areas for Improvement
+=====================
+
+1) Make this thing get Server.app to do it's first run process for us instead of relying on a monolithic image!
+
+2) Admin password for root and admin accounts should really be passed to this script for security rather than baked in. (Ick but it is a v.1 release).
