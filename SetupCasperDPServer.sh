@@ -12,6 +12,7 @@
 # Version : 0.7 - 23-04-2014 - Moved IP address code to back of script for non server VLAN builds. Temporary change. Now sets up user dock!
 # Version : 0.8 - 24-04-2014 - Everything works as expected! Now added code to set admin account desktop background and fixed rsync script generation.
 # Version : 1.0 - 24-04-2014 - Initial Release.
+# Version : 1.1 - 28-04-2014 - Now enables the CasperShare to be shared via HTTPS alias as well as AFP
 
 # Set variables here
 
@@ -238,9 +239,10 @@ dscl . passwd /Users/casperinstall password
 # Create caspershare folder and set ACL permissions for casperadmin, casperinstall and serveradmin users.
 
 mkdir /CasperShare
-chmod +a "admin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
-chmod +a "casperadmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
-chmod +a "casperinstall allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+chmod -R +a "admin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+chmod -R +a "casperadmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+chmod -R +a "casperinstall allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+chmod -R +a "_www allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 
 # Create SSH folder for root user
 
@@ -645,6 +647,17 @@ smb:AllowGuestAccess = no
 smb:DOSCodePage = "850"
 SERVERADMIN_SMB
 
+# Default Web configuration for HTTPS distribution
+
+echo "" >> $LOG
+echo $( date )" - Configuring HTTP service" >> $LOG
+
+cat << SERVERADMIN_WEB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
+web:defaultSecureSite:aliases:_array_index:0:matchType = 0
+web:defaultSecureSite:aliases:_array_index:0:fileSystemPath = "/CasperShare"
+web:defaultSecureSite:aliases:_array_index:0:urlPathOrRegularExpression = "/CasperShare"
+SERVERADMIN_WEB
+
 # Default Netboot configuration
 
 echo "" >> $LOG
@@ -935,7 +948,7 @@ echo "" >> $LOG
 echo $( date )" - Setting up the desktop background" >> $LOG
 
 sqlite3 /Users/admin/Library/Application\ Support/Dock/desktoppicture.db << EOF
-UPDATE data SET value = "/Library/Desktop Pictures/UAL/ual_default_black2560x1600.jpg";
+UPDATE data SET value = "/Library/Desktop Pictures/default_2560x1600.jpg";
 .quit
 EOF
 
