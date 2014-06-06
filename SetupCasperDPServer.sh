@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to automate setup and config of an Casper OS X Distribution Point Server
+# Script to automate setup and config of a Casper file distribution OS X Server
 
 # Author  : r.purves@arts.ac.uk
 # Version : 0.1 - 10-04-2014 - Initial Version
@@ -9,19 +9,16 @@
 # Version : 0.4 - 17-04-2014 - Fixed bugs to do with SSH enabling for appropriate users. Added code to auto add servers to known_hosts file.
 # Version : 0.5 - 18-04-2014 - Added check to initial rsync. Primary server will now not attempt to replicate from itself!
 # Version : 0.6 - 22-04-2014 - Massively overhauled known_hosts code to make it more elegant and use existing commands rather than directly messing with files.
-# Version : 0.7 - 23-04-2014 - Moved IP address code to back of script for non server VLAN builds. Temporary change. Now sets up user dock!
+# Version : 0.7 - 23-04-2014 - Moved IP address code to back of script for non server VLAN builds. And now sets up user dock!
 # Version : 0.8 - 24-04-2014 - Everything works as expected! Now added code to set admin account desktop background and fixed rsync script generation.
 # Version : 1.0 - 24-04-2014 - Initial Release.
-# Version : 1.1 - 28-04-2014 - Now enables the CasperShare to be shared via HTTPS alias as well as AFP
+# Version : 1.1 - 29-04-2014 - Now enables CasperShare to be shared via HTTP alias as well as AFP
 
 # Set variables here
 
 MacModel=$( ioreg -l | awk '/product-name/ { split($0, line, "\""); printf("%s\n", line[4]); }' )
 PrefModel=$( defaults read /Library/Preferences/SystemConfiguration/preferences.plist Model )
 errorcode=1
-EnrollLD="/Library/LaunchDaemons/com.jamfsoftware.firstrun.enroll.plist"
-EnrolWait=$(( 8 * 60 ))
-EnrolWaitIncrement=30
 SERVERPW=password
 LOG=/var/log/server-build.log
 computername=$( scutil --get ComputerName )
@@ -31,9 +28,9 @@ DU=/usr/local/scripts/dockutil.py
 
 systemsetup -settimezone Europe/London
 systemsetup -setusingnetworktime on
-systemsetup -setnetworktimeserver timeserver.domain.com
+systemsetup -setnetworktimeserver timeserver.com
 /usr/sbin/ntpd -g -q
-echo "Server Build - started at "$( date ) >> $LOG
+echo "OS X Server Build - started at "$( date ) >> $LOG
 
 # Set energy saving settings to never sleep
 
@@ -42,6 +39,13 @@ echo $( date )" - Disabling sleep settings" >> $LOG
 /usr/bin/pmset -a sleep 0 >> $LOG
 /usr/bin/pmset -a displaysleep 0 >> $LOG
 /usr/bin/pmset -a disksleep 0 >> $LOG
+
+# Hiding under UID500 users and setting login window to username/password entry.
+
+echo "" >> $LOG
+echo $( date )" - Hiding admin users and setting login window settings" >> $LOG
+defaults write /Library/Preferences/com.apple.loginwindow Hide500Users -bool true
+defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool true
 
 # Disable auto check for Software Updates
 
@@ -52,8 +56,8 @@ softwareupdate --schedule off >> $LOG
 # Create Server local admin account
 
 echo "" >> $LOG
-echo $( date )" - Creating admin account" >> $LOG
-jamf createAccount -username admin -realname admin -password $SERVERPW -home /Users/admin -shell /bin/bash -admin >> $LOG
+echo $( date )" - Creating serveradmin account" >> $LOG
+jamf createAccount -username serveradmin -realname serveradmin -password $SERVERPW -home /Users/serveradmin -shell /bin/bash -admin >> $LOG
 
 # Save last imaged time
 
@@ -84,18 +88,11 @@ echo $( date )" - Enabling Apple Remote Management" >> $LOG
 echo "" >> $LOG
 echo $( date )" - Checking to see if JAMF enroll.sh is still running" >> $LOG
 
-while [ -e "$EnrollLD" ]; do
-    if [ $EnrolWait -le 0 ]; then
-        echo "Reached wait timeout of ${EnrolWait} seconds!" >> $LOG
-        break
-    fi
-
-    echo "Still not complete. Waiting another ${EnrolWaitIncrement} seconds..."  >> $LOG
-    sleep $EnrolWaitIncrement 
-    (( EnrolWait -= $EnrolWaitIncrement ))
-done    
-
-jamf enroll -verbose >> $LOG
+while [ -d '/Library/Application Support/JAMF/FirstRun/Enroll' ]
+do
+   echo $( date )" - Computer enrolment into JSS in progress."
+   sleep 5
+done
 
 # Set up error trapping function for multiple jamf binary processes
 
@@ -169,7 +166,7 @@ do
 	done
 done
 
-# Set the building details to "unmanage" the server
+# Set the building to put the computer in the Unmanaged building
 
 echo "" >> $LOG
 echo $( date )" - Configuring JSS record for server" >> $LOG
@@ -177,7 +174,7 @@ echo $( date )" - Configuring JSS record for server" >> $LOG
 multiplejamf	
 jamf recon -building Unmanaged >> $LOG
 	
-# Now set the department details to the casper server department.
+# Now set the department details to the Casper Distribution Point department.
 	
 multiplejamf
 jamf recon -department CasperDP >> $LOG
@@ -204,7 +201,7 @@ jamf recon
 
 echo "" >> $LOG
 echo $( date )" - Enabling root account" >> $LOG
-dsenableroot -u admin -p $SERVERPW -r $SERVERPW
+dsenableroot -u serveradmin -p $SERVERPW -r $SERVERPW
 
 # Enable SSH access for root and serveradmin users
 
@@ -212,9 +209,9 @@ echo "" >> $LOG
 echo $( date )" - Enabling SSH access" >> $LOG
 dseditgroup -o delete -t group com.apple.access_ssh >> $LOG
 dseditgroup -o create -q com.apple.access_ssh >> $LOG
-dseditgroup -o edit -a caspermgtaccount -t user com.apple.access_ssh >> $LOG
+dseditgroup -o edit -a caspermgt -t user com.apple.access_ssh >> $LOG
 dseditgroup -o edit -a root -t user com.apple.access_ssh >> $LOG
-dseditgroup -o edit -a admin -t user com.apple.access_ssh >> $LOG
+dseditgroup -o edit -a serveradmin -t user com.apple.access_ssh >> $LOG
 
 # Create CasperAdmin and CasperInstall accounts. These must not have user folders or user shells!
 
@@ -239,7 +236,7 @@ dscl . passwd /Users/casperinstall password
 # Create caspershare folder and set ACL permissions for casperadmin, casperinstall and serveradmin users.
 
 mkdir /CasperShare
-chmod -R +a "admin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+chmod -R +a "serveradmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 chmod -R +a "casperadmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 chmod -R +a "casperinstall allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 chmod -R +a "_www allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
@@ -255,13 +252,37 @@ chmod 700 /var/root/.ssh >> $LOG
 touch /var/root/.ssh/rsync-key >> $LOG
 cat > /var/root/.ssh/rsync-key << ENDRSAKEY
 -----BEGIN RSA PRIVATE KEY-----
-set key here
+MIIEowIBAAKCAQEAyi6MLXKmebdwtlSyVJ94z9W7Q6ZsyvbMyjaxOisfMtSW8sHJ
+t/ECOy0I16bJYgUxadEXGoWJMqfh51nIt4GZr+TFb5kLnQLcHkq4GeC4iDiF/k2o
+Y48DyY2cG0PB8g1nNRdgwENsCHa14LbgMTJV+y6yiv/xQJDWS/Bmei7E0g/1zP4q
+CPhMCG4+7wKDzBHPcQFE3mbWXiuj5T92dwMKJY0bhJ3VYpdnuzUNzVblqsExwdwn
+zzlqbTkelxiDfjDMS+YMyUQsygu4kbh7f1nGCBU38bv612r4Z75eDPRjFr8+tMq7
+BdC6AzjTJOsNySQwsvcQ0m9yPBdGnjeSI7BwIwIBIwKCAQEAsxNI9Q3GplIEvsAL
+qgmW4/fRv5NnrHQxumr0vn33D8Obo9A2UnZhD9duO1k2Blxe91LLUgE/APsYixUC
+PCJU7D+njrrBJKrC9kIuCEqyEkCxMbJ/M5vtaWArLhdxRBp/+9LgqkpYX0SSdpNY
+2x30YiIL2jMmIz50qakKTvY5TFW0agnODRgQTvOvWtrqmE55zCUvTgh1LeVfl4Qe
+6ozf5bKtQAn49WgekCh/Kwvzdv/JmXpHyMFH+bYs3d/+WmSmZr49setsm1urLD21
+siaxJeitBguczwiRgLXH7DGrem7eQKsE0/Kqpy2Y3GGAj2O9VyF1LW4Tf0Hbxq1W
+cXR7GwKBgQDjz/mu7vYjDhWbsg24O0QgPo2d04/doYpAEXJV4vIOdbHF74vsHO/G
+kL2qalzAHYZ4kQ2AOb5qM3fihFUwbPmtYZlG5LN4i+6ty3Qa3MkRyIBdoFSY3NtB
+04LaxI4xzlPZa2q3sir0ioXdkM3clLVg/UKXB8NfVUXcCMMoVJVLSwKBgQDjMrdY
+qCDMPhw4GHE+kkOIx9YOiXKVeEvW3mmBzVDmICIeXUi3amOfsP9X8E/AF2RA7uF/
+09qWMFamUhDASA/OZciQwNl7r73NpNVqNEP8wjNQxnMLxn3H+qgVLTZfKYsgCJ7t
+XBfsBkWsFyr65R88AMA/0S/LVyP2lBwQeE1PiQKBgQCvvbH7+iuXYqL0c2mrYOtp
+VNOlozR3xcJr8DOhV00D1yK9Q8O2JPN77AAHHtnWCCXn+t6HfQCbEcLh8Q6EcVLk
+1kMKza8FOL9wIJtlLfoySjcjp5G3wFFeqnrjRyvdR2VBUt1L4TcUatxL1hsmgVi4
+iNuZFJ4Hts992t+xZdJBZQKBgG5adk+iHo8W2oGleNU/umcB+kGTN6evdUsbklT9
+Uy3yWbb6HAFQ7o9kmUf4YUALXJSRSPTx3zMBiSw2fSoxoUb+PNiYLx7Rs/YrfZn8
+IQW9aWG/ebVDJyaeUaPiwqNAEGAEL++hwnn0avvQvRrHDyvF2biYzhJO5ZUGHEKD
+k0PjAoGBAN6bo6uSHYj6MszU06QzC6Rp9NR44VLUg3wK3WSdolaSD+MXlIWQJChg
+m73hVLlCyxsXprUlsw5o+X36o2jr1Jgv1ivfhIoegqExPdbHKPlkMPym568taXzd
+N1ehSvpa1QRedfSfI681u650RooVnWGM0BjfqiuZyzavpC4Dnjzb
 -----END RSA PRIVATE KEY-----
 ENDRSAKEY
 
 touch /var/root/.ssh/rsync-key.pub >> $LOG
 cat > /var/root/.ssh/rsync-key.pub << ENDRSAKEY
-ssh-rsa set key here mac_root
+ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAyi6MLXKmebdwtlSyVJ94z9W7Q6ZsyvbMyjaxOisfMtSW8sHJt/ECOy0I16bJYgUxadEXGoWJMqfh51nIt4GZr+TFb5kLnQLcHkq4GeC4iDiF/k2oY48DyY2cG0PB8g1nNRdgwENsCHa14LbgMTJV+y6yiv/xQJDWS/Bmei7E0g/1zP4qCPhMCG4+7wKDzBHPcQFE3mbWXiuj5T92dwMKJY0bhJ3VYpdnuzUNzVblqsExwdwnzzlqbTkelxiDfjDMS+YMyUQsygu4kbh7f1nGCBU38bv612r4Z75eDPRjFr8+tMq7BdC6AzjTJOsNySQwsvcQ0m9yPBdGnjeSI7BwIw== mac_root
 ENDRSAKEY
 
 # Lock down SSH access to rsync service only
@@ -271,7 +292,7 @@ echo $( date )" - Lock root ssh to rsync command" >> $LOG
 
 touch /var/root/.ssh/authorized_keys
 cat > /var/root/.ssh/authorized_keys << ENDAUTHKEY
-command="/usr/local/scripts/validate-rsync" ssh-rsa set key here mac_root
+command="/usr/local/scripts/validate-rsync" ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAyi6MLXKmebdwtlSyVJ94z9W7Q6ZsyvbMyjaxOisfMtSW8sHJt/ECOy0I16bJYgUxadEXGoWJMqfh51nIt4GZr+TFb5kLnQLcHkq4GeC4iDiF/k2oY48DyY2cG0PB8g1nNRdgwENsCHa14LbgMTJV+y6yiv/xQJDWS/Bmei7E0g/1zP4qCPhMCG4+7wKDzBHPcQFE3mbWXiuj5T92dwMKJY0bhJ3VYpdnuzUNzVblqsExwdwnzzlqbTkelxiDfjDMS+YMyUQsygu4kbh7f1nGCBU38bv612r4Z75eDPRjFr8+tMq7BdC6AzjTJOsNySQwsvcQ0m9yPBdGnjeSI7BwIw== mac_root
 ENDAUTHKEY
 
 chown root:wheel /var/root/.ssh/authorized_keys >> $LOG
@@ -286,7 +307,7 @@ mkdir /usr/local/
 mkdir /usr/local/scripts
 chown root:wheel /usr/local/scripts
 
-# Create SSH validation script. Using lots of \ to escape out variable names!
+# Create SSH validation script
 
 touch /usr/local/scripts/validate-rsync
 
@@ -326,7 +347,6 @@ for host in \
     server1 \
     server2 \
     server3 \
-    server4 \
 ; do
     ssh-keygen -R $host -f /var/root/.ssh/known_hosts
     ssh -q -o StrictHostKeyChecking=no -o BatchMode=yes -o UserKnownHostsFile=/var/root/.ssh/known_hosts $host echo '' || true
@@ -371,7 +391,7 @@ else
     if [ ! -e \$LOCKS ] ;then
         touch \$LOCKS ;
 
-# Sync server2
+# Sync server2 first
 
 # Sync CasperShare
         
@@ -383,7 +403,7 @@ else
         echo "Syncing netboot image server2" >> \$LOGS;
         /usr/bin/rsync -a4hxvz --delete-after --force  --bwlimit=100000 -e "ssh -i /var/root/.ssh/rsync-key" /Library/NetBoot/NetBootSP0/ root@server2:/Library/NetBoot/NetBootSP0/ >> \$LOGS 2>&1
 
-# Start external sync from inf-macdp-mb
+# Start external sync from server2
 # Background this so that the rest of the rsync will finish while this works. They "should" be ok for this.
 
 		echo "Starting sync from server2 outward" >> \$LOGS;
@@ -401,15 +421,15 @@ else
 fi;
 CASPER-SYNC
 
-touch /Library/LaunchDaemons/com.ual.casper-rsync.plist
+touch /Library/LaunchDaemons/com.casper-rsync.plist
 
-cat > /Library/LaunchDaemons/com.ual.casper-rsync.plist << CASPER-SYNC-LAUNCHD
+cat > /Library/LaunchDaemons/com.casper-rsync.plist << CASPER-SYNC-LAUNCHD
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.ual.casper-rsync</string>
+	<string>com.casper-rsync</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/local/scripts/casper-sync.sh</string>
@@ -423,8 +443,8 @@ CASPER-SYNC-LAUNCHD
 chown root:staff /usr/local/scripts/casper-sync.sh >> $LOG
 chmod 700 /usr/local/scripts/casper-sync.sh >> $LOG
 
-chown root:wheel /Library/LaunchDaemons/com.ual.casper-rsync.plist >> $LOG
-chmod 644 /Library/LaunchDaemons/com.ual.casper-rsync.plist >> $LOG
+chown root:wheel /Library/LaunchDaemons/com.casper-rsync.plist >> $LOG
+chmod 644 /Library/LaunchDaemons/com.casper-rsync.plist >> $LOG
 ;;
 
 server2 )
@@ -458,7 +478,7 @@ else
     if [ ! -e \$LOCKS ] ;then
         touch \$LOCKS ;
 
-# Sync server3
+# Sync server3 first
 
 # Sync CasperShare
         
@@ -508,10 +528,10 @@ serveradmin settings info:enableSNMP = no
 echo "" >> $LOG
 if [ "$computername" == "server1" ]
 then
-	echo $( date )" - Initial CasperShare sync from server server2" >> $LOG
+	echo $( date )" - Initial CasperShare sync from server2" >> $LOG
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/CasperShare/ /CasperShare >> $LOG
 else
-	echo $( date )" - Initial CasperShare sync from server server1" >> $LOG
+	echo $( date )" - Initial CasperShare sync from server1" >> $LOG
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/CasperShare/ /CasperShare >> $LOG
 fi
 
@@ -539,17 +559,17 @@ case $computername in
 
 server1 )
 echo $( date )" - Setting IP address to x.x.x.x" >> $LOG
-networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.1
+networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.x
 ;;
 
 server2 )
 echo $( date )" - Setting IP address to x.x.x.x" >> $LOG
-networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.1
+networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.x
 ;;
 
 server3 )
 echo $( date )" - Setting IP address to x.x.x.x" >> $LOG
-networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.1
+networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.x
 ;;
 
 esac
@@ -559,21 +579,21 @@ esac
 echo "" >> $LOG
 echo $( date )" - Setting DNS and Search Domain information" >> $LOG
 networksetup -setdnsservers Ethernet x.x.x.x x.x.x.x >> $LOG
-networksetup -setsearchdomains Ethernet domain.local domain.com >> $LOG
+networksetup -setsearchdomains Ethernet domain.local domain.co.uk >> $LOG
 
 # Set proxy server environment variables so JAMF binary can see out
 
 echo "" >> $LOG
 echo $( date )" - Setting proxy cache settings" >> $LOG
-echo "export HTTP_PROXY="proxy.domain:port"" >> /etc/profile
-echo "export http_proxy="proxy.domain:port"" >> /etc/profile
-echo "export HTTP_PROXY="proxy.domain:port"" >> /etc/bashrc
-echo "export http_proxy="proxy.domain:port"" >> /etc/bashrc
+echo "export HTTP_PROXY="proxy.cache:3128"" >> /etc/profile
+echo "export http_proxy="proxy.cache:3128"" >> /etc/profile
+echo "export HTTP_PROXY="proxy.cache:3128"" >> /etc/bashrc
+echo "export http_proxy="proxy.cache:3128"" >> /etc/bashrc
 
 # Now set proxy server so rest of system can see out
 
-networksetup -setwebproxy Ethernet proxy.domain port >> $LOG
-networksetup -setsecurewebproxy Ethernet proxy.domain port >> $LOG
+networksetup -setwebproxy Ethernet proxy.cache 3128 >> $LOG
+networksetup -setsecurewebproxy Ethernet proxy.cache 3128 >> $LOG
 
 # Default AFP share configuration
 
@@ -642,7 +662,7 @@ echo $( date )" - Configuring SMB service" >> $LOG
 
 cat << SERVERADMIN_SMB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 smb:EnabledServices:_array_index:0 = "disk"
-smb:Workgroup = "ARTSLOCAL"
+smb:Workgroup = "WORKGROUP"
 smb:AllowGuestAccess = no
 smb:DOSCodePage = "850"
 SERVERADMIN_SMB
@@ -653,9 +673,9 @@ echo "" >> $LOG
 echo $( date )" - Configuring HTTP service" >> $LOG
 
 cat << SERVERADMIN_WEB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
-web:defaultSecureSite:aliases:_array_index:0:matchType = 0
-web:defaultSecureSite:aliases:_array_index:0:fileSystemPath = "/CasperShare"
-web:defaultSecureSite:aliases:_array_index:0:urlPathOrRegularExpression = "/CasperShare"
+web:defaultSite:aliases:_array_index:0:matchType = 0
+web:defaultSite:aliases:_array_index:0:fileSystemPath = "/CasperShare"
+web:defaultSite:aliases:_array_index:0:urlPathOrRegularExpression = "/CasperShare"
 SERVERADMIN_WEB
 
 # Default Netboot configuration
@@ -692,7 +712,7 @@ netboot:netBootImagesRecordsArray:_array_index:0:IsEnabled = yes
 netboot:netBootImagesRecordsArray:_array_index:0:IsInstall = no
 netboot:netBootImagesRecordsArray:_array_index:0:Architectures = "4"
 netboot:netBootImagesRecordsArray:_array_index:0:SupportsDiskless = yes
-netboot:netBootImagesRecordsArray:_array_index:0:pathToImage = "/Library/NetBoot/NetBootSP0/Netboot.nbi/NBImageInfo.plist"
+netboot:netBootImagesRecordsArray:_array_index:0:pathToImage = "/Library/NetBoot/NetBootSP0/Casper Netboot.nbi/NBImageInfo.plist"
 netboot:netBootImagesRecordsArray:_array_index:0:imageType = "netboot"
 netboot:afpUsersMax = "50"
 SERVERADMIN_NETBOOT
@@ -766,15 +786,15 @@ sharing:sharePointList:_array_id:/Library/NetBoot/NetBootSP0:isIndexingEnabled =
 sharing:sharePointList:_array_id:/Library/NetBoot/NetBootSP0:mountedOnPath = "/"
 SERVERADMIN_SHARING
 
-# Write a snmp.conf file that will allow monitoring via opsview/cacti
+# Write a snmpd.conf file that will allow monitoring via opsview/cacti
 
 echo "" >> $LOG
-echo $( date )" - Configuring SNMP service" >> $LOG
+echo $( date )" - Configuring v2c SNMP service" >> $LOG
 
-rm /etc/snmp/snmp.conf
-touch /etc/snmp/snmp.conf
+rm /etc/snmp/snmpd.conf
+touch /etc/snmp/snmpd.conf
 
-cat > /etc/snmp/snmp.conf << SNMP_CONF
+cat > /etc/snmp/snmpd.conf << SNMP_CONF
 
 ###########################################################################
 #
@@ -796,7 +816,7 @@ rwuser  admin
 # rocommunity: a SNMPv1/SNMPv2c read-only access community name
 #   arguments:  community [default|hostname|network/bits] [oid]
 
-rocommunity  snmpmonitor #default .1.3.6.1.2.1.1.4
+rocommunity  cacti_monitor #default .1.3.6.1.2.1.1.4
 
 ###########################################################################
 # SECTION: Extending the Agent
@@ -912,13 +932,14 @@ SNMP_CONF
 echo "" >> $LOG
 echo $( date )" - Restarting Services" >> $LOG
 
-serveradmin start afp
-serveradmin start smb
-serveradmin start sharing
-serveradmin start web
-serveradmin start nfs
-serveradmin start netboot
-serveradmin settings info:enableSNMP = yes
+serveradmin start afp >> $LOG
+serveradmin start smb >> $LOG
+serveradmin start sharing >> $LOG
+serveradmin start web >> $LOG
+serveradmin start nfs >> $LOG
+serveradmin start netboot >> $LOG
+serveradmin settings info:enableRemoteAdministration = yes >> $LOG
+serveradmin settings info:enableSNMP = yes >> $LOG
 
 # Finally set up the admin user dock the way we like it
 
@@ -947,10 +968,12 @@ $DU --add /Applications/Utilities/Terminal.app --allhomes
 echo "" >> $LOG
 echo $( date )" - Setting up the desktop background" >> $LOG
 
-sqlite3 /Users/admin/Library/Application\ Support/Dock/desktoppicture.db << EOF
-UPDATE data SET value = "/Library/Desktop Pictures/default_2560x1600.jpg";
+sqlite3 /Users/ualserv/Library/Application\ Support/Dock/desktoppicture.db << EOF
+UPDATE data SET value = "/Library/Desktop Pictures/default_black2560x1600.jpg";
 .quit
 EOF
+
+killall Dock
 
 # All done!
 
