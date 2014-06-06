@@ -29,3 +29,12 @@ Areas for Improvement
 1) Make this thing get Server.app to do it's first run process for us instead of relying on a monolithic image!
 
 2) Admin password for root and admin accounts should really be passed to this script for security rather than baked in. (Ick but it is a v.1 release).
+
+Current Known Issues
+====================
+
+1) Netboot service does not start up again. Currently requires manual start.
+
+2) SNMP service also does not start up again. Same as 1)
+
+3) HTTP service alias info is not being set up. Serveradmin appears to be igoring the data being passed to it.
