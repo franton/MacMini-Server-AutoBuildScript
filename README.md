@@ -30,6 +30,8 @@ Areas for Improvement
 
 2) Admin password for root and admin accounts should really be passed to this script for security rather than baked in. (Ick but it is a v.1 release).
 
+3) Feedback on screen outside of the Console logs would be nice. Maybe with Casper 9.32 onwards ...
+
 Current Known Issues
 ====================
 
