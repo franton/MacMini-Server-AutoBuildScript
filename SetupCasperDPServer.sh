@@ -252,37 +252,13 @@ chmod 700 /var/root/.ssh >> $LOG
 touch /var/root/.ssh/rsync-key >> $LOG
 cat > /var/root/.ssh/rsync-key << ENDRSAKEY
 -----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEAyi6MLXKmebdwtlSyVJ94z9W7Q6ZsyvbMyjaxOisfMtSW8sHJ
-t/ECOy0I16bJYgUxadEXGoWJMqfh51nIt4GZr+TFb5kLnQLcHkq4GeC4iDiF/k2o
-Y48DyY2cG0PB8g1nNRdgwENsCHa14LbgMTJV+y6yiv/xQJDWS/Bmei7E0g/1zP4q
-CPhMCG4+7wKDzBHPcQFE3mbWXiuj5T92dwMKJY0bhJ3VYpdnuzUNzVblqsExwdwn
-zzlqbTkelxiDfjDMS+YMyUQsygu4kbh7f1nGCBU38bv612r4Z75eDPRjFr8+tMq7
-BdC6AzjTJOsNySQwsvcQ0m9yPBdGnjeSI7BwIwIBIwKCAQEAsxNI9Q3GplIEvsAL
-qgmW4/fRv5NnrHQxumr0vn33D8Obo9A2UnZhD9duO1k2Blxe91LLUgE/APsYixUC
-PCJU7D+njrrBJKrC9kIuCEqyEkCxMbJ/M5vtaWArLhdxRBp/+9LgqkpYX0SSdpNY
-2x30YiIL2jMmIz50qakKTvY5TFW0agnODRgQTvOvWtrqmE55zCUvTgh1LeVfl4Qe
-6ozf5bKtQAn49WgekCh/Kwvzdv/JmXpHyMFH+bYs3d/+WmSmZr49setsm1urLD21
-siaxJeitBguczwiRgLXH7DGrem7eQKsE0/Kqpy2Y3GGAj2O9VyF1LW4Tf0Hbxq1W
-cXR7GwKBgQDjz/mu7vYjDhWbsg24O0QgPo2d04/doYpAEXJV4vIOdbHF74vsHO/G
-kL2qalzAHYZ4kQ2AOb5qM3fihFUwbPmtYZlG5LN4i+6ty3Qa3MkRyIBdoFSY3NtB
-04LaxI4xzlPZa2q3sir0ioXdkM3clLVg/UKXB8NfVUXcCMMoVJVLSwKBgQDjMrdY
-qCDMPhw4GHE+kkOIx9YOiXKVeEvW3mmBzVDmICIeXUi3amOfsP9X8E/AF2RA7uF/
-09qWMFamUhDASA/OZciQwNl7r73NpNVqNEP8wjNQxnMLxn3H+qgVLTZfKYsgCJ7t
-XBfsBkWsFyr65R88AMA/0S/LVyP2lBwQeE1PiQKBgQCvvbH7+iuXYqL0c2mrYOtp
-VNOlozR3xcJr8DOhV00D1yK9Q8O2JPN77AAHHtnWCCXn+t6HfQCbEcLh8Q6EcVLk
-1kMKza8FOL9wIJtlLfoySjcjp5G3wFFeqnrjRyvdR2VBUt1L4TcUatxL1hsmgVi4
-iNuZFJ4Hts992t+xZdJBZQKBgG5adk+iHo8W2oGleNU/umcB+kGTN6evdUsbklT9
-Uy3yWbb6HAFQ7o9kmUf4YUALXJSRSPTx3zMBiSw2fSoxoUb+PNiYLx7Rs/YrfZn8
-IQW9aWG/ebVDJyaeUaPiwqNAEGAEL++hwnn0avvQvRrHDyvF2biYzhJO5ZUGHEKD
-k0PjAoGBAN6bo6uSHYj6MszU06QzC6Rp9NR44VLUg3wK3WSdolaSD+MXlIWQJChg
-m73hVLlCyxsXprUlsw5o+X36o2jr1Jgv1ivfhIoegqExPdbHKPlkMPym568taXzd
-N1ehSvpa1QRedfSfI681u650RooVnWGM0BjfqiuZyzavpC4Dnjzb
+key goes here
 -----END RSA PRIVATE KEY-----
 ENDRSAKEY
 
 touch /var/root/.ssh/rsync-key.pub >> $LOG
 cat > /var/root/.ssh/rsync-key.pub << ENDRSAKEY
-ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAyi6MLXKmebdwtlSyVJ94z9W7Q6ZsyvbMyjaxOisfMtSW8sHJt/ECOy0I16bJYgUxadEXGoWJMqfh51nIt4GZr+TFb5kLnQLcHkq4GeC4iDiF/k2oY48DyY2cG0PB8g1nNRdgwENsCHa14LbgMTJV+y6yiv/xQJDWS/Bmei7E0g/1zP4qCPhMCG4+7wKDzBHPcQFE3mbWXiuj5T92dwMKJY0bhJ3VYpdnuzUNzVblqsExwdwnzzlqbTkelxiDfjDMS+YMyUQsygu4kbh7f1nGCBU38bv612r4Z75eDPRjFr8+tMq7BdC6AzjTJOsNySQwsvcQ0m9yPBdGnjeSI7BwIw== mac_root
+ssh-rsa key goes here mac_root
 ENDRSAKEY
 
 # Lock down SSH access to rsync service only
@@ -292,7 +268,7 @@ echo $( date )" - Lock root ssh to rsync command" >> $LOG
 
 touch /var/root/.ssh/authorized_keys
 cat > /var/root/.ssh/authorized_keys << ENDAUTHKEY
-command="/usr/local/scripts/validate-rsync" ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAyi6MLXKmebdwtlSyVJ94z9W7Q6ZsyvbMyjaxOisfMtSW8sHJt/ECOy0I16bJYgUxadEXGoWJMqfh51nIt4GZr+TFb5kLnQLcHkq4GeC4iDiF/k2oY48DyY2cG0PB8g1nNRdgwENsCHa14LbgMTJV+y6yiv/xQJDWS/Bmei7E0g/1zP4qCPhMCG4+7wKDzBHPcQFE3mbWXiuj5T92dwMKJY0bhJ3VYpdnuzUNzVblqsExwdwnzzlqbTkelxiDfjDMS+YMyUQsygu4kbh7f1nGCBU38bv612r4Z75eDPRjFr8+tMq7BdC6AzjTJOsNySQwsvcQ0m9yPBdGnjeSI7BwIw== mac_root
+command="/usr/local/scripts/validate-rsync" ssh-rsa key goes here mac_root
 ENDAUTHKEY
 
 chown root:wheel /var/root/.ssh/authorized_keys >> $LOG
