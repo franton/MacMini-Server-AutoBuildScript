@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to automate setup and config of a Casper file distribution OS X Server
+# Script to automate setup and config of a UAL OS X Server
 
 # Author  : r.purves@arts.ac.uk
 # Version : 0.1 - 10-04-2014 - Initial Version
@@ -13,6 +13,8 @@
 # Version : 0.8 - 24-04-2014 - Everything works as expected! Now added code to set admin account desktop background and fixed rsync script generation.
 # Version : 1.0 - 24-04-2014 - Initial Release.
 # Version : 1.1 - 29-04-2014 - Now enables CasperShare to be shared via HTTP alias as well as AFP
+# Version : 1.5 - 29-06-2014 - Massively improved logging. Fixed various silly rsync script bugs.
+# Version : 1.6 - 06-08-2014 - Removed netboot configuration. It configures itself from the images ... d'oh!
 
 # Set variables here
 
@@ -28,36 +30,38 @@ DU=/usr/local/scripts/dockutil.py
 
 systemsetup -settimezone Europe/London
 systemsetup -setusingnetworktime on
-systemsetup -setnetworktimeserver timeserver.com
+systemsetup -setnetworktimeserver timeserver.address
 /usr/sbin/ntpd -g -q
-echo "OS X Server Build - started at "$( date ) >> $LOG
+echo "Server Build - started at "$( date ) >> $LOG
 
 # Set energy saving settings to never sleep
 
 echo "" >> $LOG
 echo $( date )" - Disabling sleep settings" >> $LOG
-/usr/bin/pmset -a sleep 0 >> $LOG
-/usr/bin/pmset -a displaysleep 0 >> $LOG
-/usr/bin/pmset -a disksleep 0 >> $LOG
+/usr/bin/pmset -a sleep 0 | tee -a ${LOG}
+/usr/bin/pmset -a displaysleep 0 | tee -a ${LOG}
+/usr/bin/pmset -a disksleep 0 | tee -a ${LOG}
 
 # Hiding under UID500 users and setting login window to username/password entry.
 
 echo "" >> $LOG
 echo $( date )" - Hiding admin users and setting login window settings" >> $LOG
-defaults write /Library/Preferences/com.apple.loginwindow Hide500Users -bool true
-defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool true
+defaults write /Library/Preferences/com.apple.loginwindow Hide500Users -bool true | tee -a ${LOG}
+defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool true | tee -a ${LOG}
 
 # Disable auto check for Software Updates
 
 echo "" >> $LOG
 echo $( date )" - Disabling Apple Software Update Checking" >> $LOG
-softwareupdate --schedule off >> $LOG
+softwareupdate --schedule off | tee -a ${LOG}
+launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.initial.plist | tee -a ${LOG}
+launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.periodic.plist | tee -a ${LOG}
 
 # Create Server local admin account
 
 echo "" >> $LOG
-echo $( date )" - Creating serveradmin account" >> $LOG
-jamf createAccount -username serveradmin -realname serveradmin -password $SERVERPW -home /Users/serveradmin -shell /bin/bash -admin >> $LOG
+echo $( date )" - Creating admin account" >> $LOG
+jamf createAccount -username admin -realname admin -password $SERVERPW -home /Users/admin -shell /bin/bash -admin | tee -a ${LOG}
 
 # Save last imaged time
 
@@ -68,20 +72,20 @@ echo "`date`" > /usr/lastimaged
 
 echo "" >> $LOG
 echo $( date )" - Disabling spotlight indexing" >> $LOG
-mdutil -i off / >> $LOG
-mdutil -d / >> $LOG
+mdutil -i off / | tee -a ${LOG}
+mdutil -d / | tee -a ${LOG}
 
 # Disable iCloud popup.
 
 echo "" >> $LOG
 echo $( date )" - Disabling iCloud popups" >> $LOG
-mv -f -v /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher.backup >> $LOG
+mv -f -v /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher.backup | tee -a ${LOG}
 
 # Enable ARD for remote access for all users.
 
 echo "" >> $LOG
 echo $( date )" - Enabling Apple Remote Management" >> $LOG
-/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all >> $LOG
+/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all | tee -a ${LOG}
 
 # Make sure the computer has enrolled
 
@@ -166,18 +170,18 @@ do
 	done
 done
 
-# Set the building to put the computer in the Unmanaged building
+# Set the building to put the computer in the CS building
 
 echo "" >> $LOG
 echo $( date )" - Configuring JSS record for server" >> $LOG
 	
 multiplejamf	
-jamf recon -building Unmanaged >> $LOG
+jamf recon -building Unmanaged | tee -a ${LOG}
 	
-# Now set the department details to the Casper Distribution Point department.
+# Now set the department details to the desktops test department.
 	
 multiplejamf
-jamf recon -department CasperDP >> $LOG
+jamf recon -department CasperDP | tee -a ${LOG}
 
 # Refresh the MCX Settings
 
@@ -185,58 +189,58 @@ echo "" >> $LOG
 echo $( date )" - Refreshing computer level MCX settings" >> $LOG
 	
 multiplejamf
-jamf mcx >> $LOG
+jamf mcx | tee -a ${LOG}
 
 # Install server specific configuration.
 
 multiplejamf
-jamf policy -trigger CasperServer >> $LOG
+jamf policy -trigger CasperServer | tee -a ${LOG}
 
 # Final recon to make sure Inventory is up to date.
 
 multiplejamf
-jamf recon
+jamf recon | tee -a ${LOG}
 
 # Enable root user for rsync purposes
 
 echo "" >> $LOG
 echo $( date )" - Enabling root account" >> $LOG
-dsenableroot -u serveradmin -p $SERVERPW -r $SERVERPW
+dsenableroot -u admin -p $SERVERPW -r $SERVERPW
 
 # Enable SSH access for root and serveradmin users
 
 echo "" >> $LOG
 echo $( date )" - Enabling SSH access" >> $LOG
-dseditgroup -o delete -t group com.apple.access_ssh >> $LOG
-dseditgroup -o create -q com.apple.access_ssh >> $LOG
-dseditgroup -o edit -a caspermgt -t user com.apple.access_ssh >> $LOG
-dseditgroup -o edit -a root -t user com.apple.access_ssh >> $LOG
-dseditgroup -o edit -a serveradmin -t user com.apple.access_ssh >> $LOG
+dseditgroup -o delete -t group com.apple.access_ssh | tee -a ${LOG}
+dseditgroup -o create -q com.apple.access_ssh | tee -a ${LOG}
+dseditgroup -o edit -a caspermgt -t user com.apple.access_ssh | tee -a ${LOG}
+dseditgroup -o edit -a root -t user com.apple.access_ssh | tee -a ${LOG}
+dseditgroup -o edit -a admin -t user com.apple.access_ssh | tee -a ${LOG}
 
 # Create CasperAdmin and CasperInstall accounts. These must not have user folders or user shells!
 
 echo "" >> $LOG
 echo $( date )" - Creating casperadmin account" >> $LOG
-dscl . create /Users/casperadmin
-dscl . create /Users/casperadmin UserShell /usr/bin/false
-dscl . create /Users/casperadmin RealName casperadmin
-dscl . create /Users/casperadmin UniqueID 502
-dscl . create /Users/casperadmin PrimaryGroupID 20
-dscl . passwd /Users/casperadmin password
+dscl . create /Users/casperadmin | tee -a ${LOG}
+dscl . create /Users/casperadmin UserShell /usr/bin/false | tee -a ${LOG}
+dscl . create /Users/casperadmin RealName casperadmin | tee -a ${LOG}
+dscl . create /Users/casperadmin UniqueID 502 | tee -a ${LOG}
+dscl . create /Users/casperadmin PrimaryGroupID 20 | tee -a ${LOG}
+dscl . passwd /Users/casperadmin c4sper4dmin | tee -a ${LOG}
 
 echo "" >> $LOG
 echo $( date )" - Creating casperinstall account" >> $LOG
-dscl . create /Users/casperinstall
-dscl . create /Users/casperinstall UserShell /usr/bin/false
-dscl . create /Users/casperinstall RealName casperinstall
-dscl . create /Users/casperinstall UniqueID 503
-dscl . create /Users/casperinstall PrimaryGroupID 20
-dscl . passwd /Users/casperinstall password
+dscl . create /Users/casperinstall | tee -a ${LOG}
+dscl . create /Users/casperinstall UserShell /usr/bin/false | tee -a ${LOG}
+dscl . create /Users/casperinstall RealName casperinstall | tee -a ${LOG}
+dscl . create /Users/casperinstall UniqueID 503 | tee -a ${LOG}
+dscl . create /Users/casperinstall PrimaryGroupID 20 | tee -a ${LOG}
+dscl . passwd /Users/casperinstall c4sper4dmin | tee -a ${LOG}
 
 # Create caspershare folder and set ACL permissions for casperadmin, casperinstall and serveradmin users.
 
 mkdir /CasperShare
-chmod -R +a "serveradmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+chmod -R +a "admin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 chmod -R +a "casperadmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 chmod -R +a "casperinstall allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
 chmod -R +a "_www allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
@@ -293,6 +297,9 @@ case "\$SSH_ORIGINAL_COMMAND" in
 rsync\ --server*)
 \$SSH_ORIGINAL_COMMAND
 ;;
+\/usr\/local\/scripts\/casper-sync.sh*)
+\$SSH_ORIGINAL_COMMAND
+;;
 *)
 echo "Rejected"
 ;;
@@ -301,17 +308,17 @@ ENDVALIDATE
 
 # Set the correct permissions and owner on the files we just created
 
-chown root:wheel /usr/local/scripts/validate-rsync >> $LOG
-chmod 755 /usr/local/scripts/validate-rsync >> $LOG
+chown root:wheel /usr/local/scripts/validate-rsync | tee -a ${LOG}
+chmod 755 /usr/local/scripts/validate-rsync | tee -a ${LOG}
 
-chown root:wheel /usr/local/scripts/authorized_keys >> $LOG
-chmod 755 /usr/local/scripts/authorized_keys >> $LOG
+chown root:wheel /usr/local/scripts/authorized_keys | tee -a ${LOG}
+chmod 755 /usr/local/scripts/authorized_keys | tee -a ${LOG}
 
-chown root:wheel /var/root/.ssh/rsync-key >> $LOG
-chmod 600 /var/root/.ssh/rsync-key >> $LOG
+chown root:wheel /var/root/.ssh/rsync-key | tee -a ${LOG}
+chmod 600 /var/root/.ssh/rsync-key | tee -a ${LOG}
 
-chown root:wheel /var/root/.ssh/rsync-key.pub >> $LOG
-chmod 600 /var/root/.ssh/rsync-key.pub >> $LOG
+chown root:wheel /var/root/.ssh/rsync-key.pub | tee -a ${LOG}
+chmod 600 /var/root/.ssh/rsync-key.pub | tee -a ${LOG}
 
 # Add servers to /var/root/.ssh/known_hosts file.
 
@@ -367,7 +374,7 @@ else
     if [ ! -e \$LOCKS ] ;then
         touch \$LOCKS ;
 
-# Sync server2 first
+# Sync inf-macdp-mb first
 
 # Sync CasperShare
         
@@ -382,8 +389,8 @@ else
 # Start external sync from server2
 # Background this so that the rest of the rsync will finish while this works. They "should" be ok for this.
 
-		echo "Starting sync from server2 outward" >> \$LOGS;
-		nohup ssh -i /var/root/.ssh/rsync-key root@server2 /usr/local/scripts/casper-sync-2.sh &;
+	echo "Starting sync from server2 outward" >> \$LOGS;
+	ssh -i /var/root/.ssh/rsync-key root@server2 /usr/local/scripts/casper-sync.sh &
 
 # All done for this server!
         
@@ -397,15 +404,15 @@ else
 fi;
 CASPER-SYNC
 
-touch /Library/LaunchDaemons/com.casper-rsync.plist
+touch /Library/LaunchDaemons/com.ual.casper-rsync.plist
 
-cat > /Library/LaunchDaemons/com.casper-rsync.plist << CASPER-SYNC-LAUNCHD
+cat > /Library/LaunchDaemons/com.ual.casper-rsync.plist << CASPER-SYNC-LAUNCHD
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.casper-rsync</string>
+	<string>com.ual.casper-rsync</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/local/scripts/casper-sync.sh</string>
@@ -416,11 +423,11 @@ cat > /Library/LaunchDaemons/com.casper-rsync.plist << CASPER-SYNC-LAUNCHD
 </plist>
 CASPER-SYNC-LAUNCHD
 
-chown root:staff /usr/local/scripts/casper-sync.sh >> $LOG
-chmod 700 /usr/local/scripts/casper-sync.sh >> $LOG
+chown root:wheel /usr/local/scripts/casper-sync.sh >> $LOG
+chmod 755 /usr/local/scripts/casper-sync.sh >> $LOG
 
-chown root:wheel /Library/LaunchDaemons/com.casper-rsync.plist >> $LOG
-chmod 644 /Library/LaunchDaemons/com.casper-rsync.plist >> $LOG
+chown root:wheel /Library/LaunchDaemons/com.ual.casper-rsync.plist >> $LOG
+chmod 644 /Library/LaunchDaemons/com.ual.casper-rsync.plist >> $LOG
 ;;
 
 server2 )
@@ -454,7 +461,7 @@ else
     if [ ! -e \$LOCKS ] ;then
         touch \$LOCKS ;
 
-# Sync server3 first
+# Sync server3
 
 # Sync CasperShare
         
@@ -478,8 +485,8 @@ else
 fi;
 CASPER-SYNC
 
-chown root:staff /usr/local/scripts/casper-sync.sh >> $LOG
-chmod 700 /usr/local/scripts/casper-sync.sh >> $LOG
+chown root:wheel /usr/local/scripts/casper-sync.sh >> $LOG
+chmod 755 /usr/local/scripts/casper-sync.sh >> $LOG
 ;;
 
 esac
@@ -489,25 +496,26 @@ esac
 echo "" >> $LOG
 echo $( date )" - Stopping services before configuration" >> $LOG
 
-serveradmin stop afp
-serveradmin stop smb
-serveradmin stop web
-serveradmin stop nfs
-serveradmin stop netboot
-serveradmin stop sharing
-serveradmin settings info:enableSNMP = no
+serveradmin stop afp | tee -a ${LOG}
+serveradmin stop smb | tee -a ${LOG}
+serveradmin stop web | tee -a ${LOG}
+serveradmin stop nfs | tee -a ${LOG}
+serveradmin stop netboot | tee -a ${LOG}
+serveradmin stop sharing | tee -a ${LOG}
+serveradmin settings info:enableSNMP = no | tee -a ${LOG}
 
 # Initial Sync of CasperShare
 
 # Is this the primary server? If so, sync from secondary server
 
 echo "" >> $LOG
+
 if [ "$computername" == "server1" ]
 then
-	echo $( date )" - Initial CasperShare sync from server2" >> $LOG
+	echo $( date )" - Initial CasperShare sync from server server2" >> $LOG
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/CasperShare/ /CasperShare >> $LOG
 else
-	echo $( date )" - Initial CasperShare sync from server1" >> $LOG
+	echo $( date )" - Initial CasperShare sync from server server1" >> $LOG
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/CasperShare/ /CasperShare >> $LOG
 fi
 
@@ -519,57 +527,59 @@ echo "" >> $LOG
 
 if [ "$computername" == "server1" ]
 then
-	echo "Initial netboot image sync from server server2" >> $LOG;
+	echo $( date )" - Initial netboot image sync from server server2" >> $LOG;
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
 else
-	echo "Initial netboot image sync from server server1" >> $LOG;
+	echo $( date )" - Initial netboot image sync from server server1" >> $LOG;
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
 fi
 
-# Set IP address depending on server computername
+# Set IP address depending on server computername for Ethernet only
 
 echo "" >> $LOG
 echo $( date )" - Server computer name set to: "$computername >> $LOG
 
 case $computername in
 
-server1 )
-echo $( date )" - Setting IP address to x.x.x.x" >> $LOG
-networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.x
-;;
+	server1 )
+	echo $( date )" - Setting Ethernet IP address to 10.1.2.1" >> $LOG
+	networksetup -setmanual Ethernet 10.1.2.1 255.255.255.0 10.1.1.1 | tee -a ${LOG}
+	;;
 
-server2 )
-echo $( date )" - Setting IP address to x.x.x.x" >> $LOG
-networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.x
-;;
+	server2 )
+	echo $( date )" - Setting Ethernet IP address to 10.2.2.1" >> $LOG
+	networksetup -setmanual Ethernet 10.2.2.1 255.255.255.0 10.2.1.1 | tee -a ${LOG}
+	;;
 
-server3 )
-echo $( date )" - Setting IP address to x.x.x.x" >> $LOG
-networksetup -setmanual Ethernet x.x.x.x 255.255.255.0 x.x.x.x
-;;
+	server3 )
+	echo $( date )" - Setting Ethernet IP address to 10.3.2.1" >> $LOG
+	networksetup -setmanual Ethernet 10.3.2.1 255.255.255.0 10.3.1.1 | tee -a ${LOG}
+	;;
 
 esac
+
+# Now set proxy server so rest of system can see out
+
+echo "" >> $LOG
+echo $( date )" - Setting proxy server information" >> $LOG
+networksetup -setwebproxy Ethernet proxy.server port | tee -a ${LOG}
+networksetup -setsecurewebproxy Ethernet proxy.server port | tee -a ${LOG}
 
 # Force DNS and Search Domain server settings
 
 echo "" >> $LOG
 echo $( date )" - Setting DNS and Search Domain information" >> $LOG
-networksetup -setdnsservers Ethernet x.x.x.x x.x.x.x >> $LOG
-networksetup -setsearchdomains Ethernet domain.local domain.co.uk >> $LOG
+networksetup -setdnsservers Ethernet dns1 dns2 | tee -a ${LOG}
+networksetup -setsearchdomains Ethernet domain1 domain2 | tee -a ${LOG}
 
 # Set proxy server environment variables so JAMF binary can see out
 
 echo "" >> $LOG
 echo $( date )" - Setting proxy cache settings" >> $LOG
-echo "export HTTP_PROXY="proxy.cache:3128"" >> /etc/profile
-echo "export http_proxy="proxy.cache:3128"" >> /etc/profile
-echo "export HTTP_PROXY="proxy.cache:3128"" >> /etc/bashrc
-echo "export http_proxy="proxy.cache:3128"" >> /etc/bashrc
-
-# Now set proxy server so rest of system can see out
-
-networksetup -setwebproxy Ethernet proxy.cache 3128 >> $LOG
-networksetup -setsecurewebproxy Ethernet proxy.cache 3128 >> $LOG
+echo "export HTTP_PROXY="proxy.server:port"" >> /etc/profile
+echo "export http_proxy="proxy.server:port"" >> /etc/profile
+echo "export HTTP_PROXY="proxy.server:port"" >> /etc/bashrc
+echo "export http_proxy="proxy.server:port"" >> /etc/bashrc
 
 # Default AFP share configuration
 
@@ -638,7 +648,7 @@ echo $( date )" - Configuring SMB service" >> $LOG
 
 cat << SERVERADMIN_SMB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 smb:EnabledServices:_array_index:0 = "disk"
-smb:Workgroup = "WORKGROUP"
+smb:Workgroup = "ARTSLOCAL"
 smb:AllowGuestAccess = no
 smb:DOSCodePage = "850"
 SERVERADMIN_SMB
@@ -653,45 +663,6 @@ web:defaultSite:aliases:_array_index:0:matchType = 0
 web:defaultSite:aliases:_array_index:0:fileSystemPath = "/CasperShare"
 web:defaultSite:aliases:_array_index:0:urlPathOrRegularExpression = "/CasperShare"
 SERVERADMIN_WEB
-
-# Default Netboot configuration
-
-echo "" >> $LOG
-echo $( date )" - Configuring Netboot service" >> $LOG
-
-cat << SERVERADMIN_NETBOOT | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
-netboot:netBootFiltersRecordsArray = _empty_array
-netboot:netBootStorageRecordsArray:_array_index:0:sharepoint = yes
-netboot:netBootStorageRecordsArray:_array_index:0:clients = yes
-netboot:netBootStorageRecordsArray:_array_index:0:volType = "hfs"
-netboot:netBootStorageRecordsArray:_array_index:0:okToDeleteSharepoint = no
-netboot:netBootStorageRecordsArray:_array_index:0:readOnlyShare = no
-netboot:netBootStorageRecordsArray:_array_index:0:path = "/"
-netboot:netBootStorageRecordsArray:_array_index:0:okToDeleteClients = yes
-netboot:netBootStorageRecordsArray:_array_index:0:volName = "Macintosh HD"
-netboot:netBootPortsRecordsArray:_array_index:0:deviceAtIndex = "en0"
-netboot:netBootPortsRecordsArray:_array_index:0:isEnabledAtIndex = yes
-netboot:netBootPortsRecordsArray:_array_index:0:nameAtIndex = "Ethernet"
-netboot:logging_level = "HIGH"
-netboot:filterEnabled = no
-netboot:netBootImagesRecordsArray:_array_index:0:BootFile = "booter"
-netboot:netBootImagesRecordsArray:_array_index:0:EnabledMACAddresses = _empty_array
-netboot:netBootImagesRecordsArray:_array_index:0:RootPath = "NetBoot.dmg"
-netboot:netBootImagesRecordsArray:_array_index:0:IsDefault = yes
-netboot:netBootImagesRecordsArray:_array_index:0:Kind = "1"
-netboot:netBootImagesRecordsArray:_array_index:0:EnabledSystemIdentifiers = _empty_array
-netboot:netBootImagesRecordsArray:_array_index:0:Type = "HTTP"
-netboot:netBootImagesRecordsArray:_array_index:0:Language = "Default"
-netboot:netBootImagesRecordsArray:_array_index:0:DisabledMACAddresses = _empty_array
-netboot:netBootImagesRecordsArray:_array_index:0:BackwardCompatible = no
-netboot:netBootImagesRecordsArray:_array_index:0:IsEnabled = yes
-netboot:netBootImagesRecordsArray:_array_index:0:IsInstall = no
-netboot:netBootImagesRecordsArray:_array_index:0:Architectures = "4"
-netboot:netBootImagesRecordsArray:_array_index:0:SupportsDiskless = yes
-netboot:netBootImagesRecordsArray:_array_index:0:pathToImage = "/Library/NetBoot/NetBootSP0/Casper Netboot.nbi/NBImageInfo.plist"
-netboot:netBootImagesRecordsArray:_array_index:0:imageType = "netboot"
-netboot:afpUsersMax = "50"
-SERVERADMIN_NETBOOT
 
 # Default Sharing configuration
 
@@ -765,7 +736,7 @@ SERVERADMIN_SHARING
 # Write a snmpd.conf file that will allow monitoring via opsview/cacti
 
 echo "" >> $LOG
-echo $( date )" - Configuring v2c SNMP service" >> $LOG
+echo $( date )" - Configuring SNMP service" >> $LOG
 
 rm /etc/snmp/snmpd.conf
 touch /etc/snmp/snmpd.conf
@@ -792,7 +763,7 @@ rwuser  admin
 # rocommunity: a SNMPv1/SNMPv2c read-only access community name
 #   arguments:  community [default|hostname|network/bits] [oid]
 
-rocommunity  cacti_monitor #default .1.3.6.1.2.1.1.4
+rocommunity  snmp_monitor #default .1.3.6.1.2.1.1.4
 
 ###########################################################################
 # SECTION: Extending the Agent
@@ -869,7 +840,7 @@ load 12 14 14
 #   the variable.
 #   arguments:  location_string
 
-syslocation Right here, right now.
+syslocation University of the Arts London.
 
 # syscontact: The contact information for the administrator
 #   Note that setting this value here means that when trying to
@@ -879,7 +850,7 @@ syslocation Right here, right now.
 #   the variable.
 #   arguments:  contact_string
 
-syscontact Administrator <postmaster@example.com>
+syscontact Client Configuration Team <clientconfig@arts.ac.uk>
 
 # sysservices: The proper value for the sysServices object.
 #   arguments:  sysservices_number
@@ -908,14 +879,14 @@ SNMP_CONF
 echo "" >> $LOG
 echo $( date )" - Restarting Services" >> $LOG
 
-serveradmin start afp >> $LOG
-serveradmin start smb >> $LOG
-serveradmin start sharing >> $LOG
-serveradmin start web >> $LOG
-serveradmin start nfs >> $LOG
-serveradmin start netboot >> $LOG
-serveradmin settings info:enableRemoteAdministration = yes >> $LOG
-serveradmin settings info:enableSNMP = yes >> $LOG
+serveradmin start netboot | tee -a ${LOG}
+serveradmin settings info:enableRemoteAdministration = yes | tee -a ${LOG}
+serveradmin settings info:enableSNMP = yes | tee -a ${LOG}
+serveradmin start afp | tee -a ${LOG}
+serveradmin start smb | tee -a ${LOG}
+serveradmin start sharing | tee -a ${LOG}
+serveradmin start web | tee -a ${LOG}
+serveradmin start nfs | tee -a ${LOG}
 
 # Finally set up the admin user dock the way we like it
 
@@ -924,20 +895,20 @@ echo $( date )" - Setting up the dock" >> $LOG
 
 # Clear the dock!
 
-$DU --remove all --allhomes
+$DU --remove all --allhomes | tee -a ${LOG}
 
 # Now put the right stuff in place!
 
-$DU --add /Applications/Launchpad.app --allhomes
-$DU --add /Applications/App\ Store.app --allhomes
-$DU --add /Applications/Safari.app --allhomes
-$DU --add /Applications/System\ Preferences.app --allhomes
-$DU --add /Applications/Server.app --allhomes
+$DU --add /Applications/Launchpad.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/App\ Store.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/Safari.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/System\ Preferences.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/Server.app --allhomes | tee -a ${LOG}
 
-$DU --add /Applications/Utilities/Activity\ Monitor.app --allhomes
-$DU --add /Applications/Utilities/Console.app --allhomes
-$DU --add /Applications/Utilities/Disk\ Utility.app --allhomes
-$DU --add /Applications/Utilities/Terminal.app --allhomes
+$DU --add /Applications/Utilities/Activity\ Monitor.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/Utilities/Console.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/Utilities/Disk\ Utility.app --allhomes | tee -a ${LOG}
+$DU --add /Applications/Utilities/Terminal.app --allhomes | tee -a ${LOG}
 
 # Last of all, configure the desktop background!
 
@@ -945,7 +916,7 @@ echo "" >> $LOG
 echo $( date )" - Setting up the desktop background" >> $LOG
 
 sqlite3 /Users/ualserv/Library/Application\ Support/Dock/desktoppicture.db << EOF
-UPDATE data SET value = "/Library/Desktop Pictures/default_black2560x1600.jpg";
+UPDATE data SET value = "/Library/Desktop Pictures/UAL/ual_default_black2560x1600.jpg";
 .quit
 EOF
 
@@ -958,6 +929,5 @@ echo $( date )" - Completed server build" >> $LOG
 
 # Making sure the JAMF firstrun folder is empty as this occasionally doesn't clear itself up.
 rm -rf /Library/Application\ Support/JAMF/FirstRun/*
-shutdown -r now
 
 exit 0
