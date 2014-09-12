@@ -2,7 +2,7 @@
 
 # Script to automate setup and config of a UAL OS X Server
 
-# Author  : r.purves@arts.ac.uk
+# Author  : contact@richard-purves.com
 # Version : 0.1 - 10-04-2014 - Initial Version
 # Version : 0.2 – 15-04-2014 – Added command= line to use validate-rsync script on root ssh access
 # Version : 0.3 - 16-04-2014 - Found major bugs in code. Removed AppleRAID code for safety. Added serveradmin account to share ACL.
