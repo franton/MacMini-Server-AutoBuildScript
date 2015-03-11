@@ -354,7 +354,7 @@ cat  > /usr/local/scripts/casper-sync.sh << CASPER-SYNC
 #!/bin/sh
 
 # rsync script for server1
-# implemented   : r.purves@arts.ac.uk
+# implemented   : contact@richard-purves.com
 
 LOGS=/var/log/casper-sync.log
 LOCKS=/var/run/casper-sync.lck
@@ -374,7 +374,7 @@ else
     if [ ! -e \$LOCKS ] ;then
         touch \$LOCKS ;
 
-# Sync inf-macdp-mb first
+# Sync server2 first
 
 # Sync CasperShare
         
@@ -404,15 +404,15 @@ else
 fi;
 CASPER-SYNC
 
-touch /Library/LaunchDaemons/com.ual.casper-rsync.plist
+touch /Library/LaunchDaemons/com.org.casper-rsync.plist
 
-cat > /Library/LaunchDaemons/com.ual.casper-rsync.plist << CASPER-SYNC-LAUNCHD
+cat > /Library/LaunchDaemons/com.org.casper-rsync.plist << CASPER-SYNC-LAUNCHD
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.ual.casper-rsync</string>
+	<string>com.org.casper-rsync</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/local/scripts/casper-sync.sh</string>
@@ -426,8 +426,8 @@ CASPER-SYNC-LAUNCHD
 chown root:wheel /usr/local/scripts/casper-sync.sh >> $LOG
 chmod 755 /usr/local/scripts/casper-sync.sh >> $LOG
 
-chown root:wheel /Library/LaunchDaemons/com.ual.casper-rsync.plist >> $LOG
-chmod 644 /Library/LaunchDaemons/com.ual.casper-rsync.plist >> $LOG
+chown root:wheel /Library/LaunchDaemons/com.org.casper-rsync.plist >> $LOG
+chmod 644 /Library/LaunchDaemons/com.org.casper-rsync.plist >> $LOG
 ;;
 
 server2 )
@@ -441,7 +441,7 @@ cat > /usr/local/scripts/casper-sync.sh << CASPER-SYNC
 #!/bin/sh
 
 # rsync script for server2
-# implemented   : r.purves@arts.ac.uk
+# implemented   : contact@richard-purves.com
 
 LOGS=/var/log/casper-sync.log
 LOCKS=/var/run/casper-sync.lck
@@ -648,7 +648,7 @@ echo $( date )" - Configuring SMB service" >> $LOG
 
 cat << SERVERADMIN_SMB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 smb:EnabledServices:_array_index:0 = "disk"
-smb:Workgroup = "ARTSLOCAL"
+smb:Workgroup = "WORKGROUP"
 smb:AllowGuestAccess = no
 smb:DOSCodePage = "850"
 SERVERADMIN_SMB
@@ -916,7 +916,7 @@ echo "" >> $LOG
 echo $( date )" - Setting up the desktop background" >> $LOG
 
 sqlite3 /Users/ualserv/Library/Application\ Support/Dock/desktoppicture.db << EOF
-UPDATE data SET value = "/Library/Desktop Pictures/UAL/ual_default_black2560x1600.jpg";
+UPDATE data SET value = "/Library/Desktop Pictures/default_black2560x1600.jpg";
 .quit
 EOF
 
