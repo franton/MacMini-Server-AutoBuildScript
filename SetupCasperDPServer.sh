@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to automate setup and config of a 10.9.x OS X Server
+# Script to automate setup and config of an OS X Server
 
 # Author  : contact@richard-purves.com
 # Version : 0.1 - 10-04-2014 - Initial Version
