@@ -24,6 +24,9 @@
 
 MacModel=$( ioreg -l | awk '/product-name/ { split($0, line, "\""); printf("%s\n", line[4]); }' )
 PrefModel=$( defaults read /Library/Preferences/SystemConfiguration/preferences.plist Model )
+osvers=$(sw_vers -productVersion | awk -F. '{print $2}')
+sw_vers=$(sw_vers -productVersion)
+sw_build=$(sw_vers -buildVersion)
 errorcode=1
 SERVERADMIN=admin
 SERVERPW=password
@@ -146,10 +149,31 @@ logme "Disabling spotlight indexing"
 mdutil -i off / | tee -a ${LOG}
 mdutil -d / | tee -a ${LOG}
 
-# Disable iCloud popup.
+# Disable iCloud and Diagnostics popup.
+# My original hack has stopped working since 10.9 so replaced with Rich Trouton's more elegant method.
+# https://github.com/rtrouton/rtrouton_scripts/tree/master/rtrouton_scripts/disable_apple_icloud_and_diagnostic_pop_ups
 
-logme "Disabling iCloud popups"
-mv -f -v /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher.backup | tee -a ${LOG}
+logme "Disabling iCloud and Diagnostics messages"
+
+for USER_HOME in /Users/*
+  do
+    USER_UID=`basename "${USER_HOME}"`
+    if [ ! "${USER_UID}" = "Shared" ]; then
+      if [ ! -d "${USER_HOME}"/Library/Preferences ]; then
+        /bin/mkdir -p "${USER_HOME}"/Library/Preferences
+        /usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library
+        /usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library/Preferences
+      fi
+      if [ -d "${USER_HOME}"/Library/Preferences ]; then
+        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant DidSeeCloudSetup -bool TRUE
+        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant GestureMovieSeen none
+        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastSeenCloudProductVersion "${sw_vers}"
+        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastSeenBuddyBuildVersion "${sw_build}"
+        /usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant.plist
+      fi
+    fi
+  done
+fi
 
 # Enable ARD for remote access for all users.
 
