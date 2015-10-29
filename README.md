@@ -1,10 +1,10 @@
 Casper Distribution Server Automated Build Script
 =================================================
 
-Version 1.1 - 28th April
+Version 2.0 - 29th October 2015.
 
 This script is meant to be run as part of a Casper Imaging workflow and will happily set up
-an OS X 10.9 Server with the following services:
+an OS X Server with the following services:
 
 1) Casper AFP/HTTPS Distribution Point
 
@@ -26,11 +26,9 @@ remove all references from where I work ;)
 Areas for Improvement
 =====================
 
-1) Make this thing get Server.app to do it's first run process for us instead of relying on a monolithic image!
+1) Admin password for root and admin accounts should really be passed to this script for security rather than baked in.
 
-2) Admin password for root and admin accounts should really be passed to this script for security rather than baked in. (Ick but it is a v.1 release).
-
-3) Feedback on screen outside of the Console logs would be nice. Maybe with Casper 9.32 onwards ...
+3) Feedback on screen outside of the Console logs would be nice. Loceee's cocoadialog integration is forthcoming.
 
 Current Known Issues
 ====================
