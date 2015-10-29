@@ -16,15 +16,42 @@
 # Version : 1.5 - 29-06-2014 - Massively improved logging. Fixed various silly rsync script bugs.
 # Version : 1.6 - 06-08-2014 - Removed netboot configuration. It configures itself from the images ... d'oh!
 
+# Version : 2.0 - 29-09-2015 - Code from Rich Trouton & Charles Edge to auto setup Server.app. Cleaned up logging code to something less primitive.
+
+# Current supported version of OS X Server is 5.03. Please don't use anything earlier than this!
+
 # Set variables here
 
 MacModel=$( ioreg -l | awk '/product-name/ { split($0, line, "\""); printf("%s\n", line[4]); }' )
 PrefModel=$( defaults read /Library/Preferences/SystemConfiguration/preferences.plist Model )
 errorcode=1
+SERVERADMIN=admin
 SERVERPW=password
-LOG=/var/log/server-build.log
 computername=$( scutil --get ComputerName )
 DU=/usr/local/scripts/dockutil.py
+LOGFOLDER="/private/var/log/organisation name here"
+LOG=$LOGFOLDER"/Server-Setup.log"
+
+if [ ! -d "$LOGFOLDER" ];
+then
+mkdir $LOGFOLDER
+fi
+
+# Set functions here
+
+logme()
+{
+# Check to see if function has been called correctly
+if [ -z "$1" ]
+then
+echo $( date )" - logme function call error: no text passed to function! Please recheck code!"
+exit 1
+fi
+
+# Log the passed details
+echo $( date )" - "$1 >> $LOG
+echo "" >> $LOG
+}
 
 # Set System Timezone to avoid clock sync issues and record imaging time.
 
@@ -32,36 +59,81 @@ systemsetup -settimezone Europe/London
 systemsetup -setusingnetworktime on
 systemsetup -setnetworktimeserver timeserver.address
 /usr/sbin/ntpd -g -q
+
+# Check and start log file
+
 echo "Server Build - started at "$( date ) >> $LOG
 
 # Set energy saving settings to never sleep
 
-echo "" >> $LOG
-echo $( date )" - Disabling sleep settings" >> $LOG
+logme "Disabling sleep settings"
 /usr/bin/pmset -a sleep 0 | tee -a ${LOG}
 /usr/bin/pmset -a displaysleep 0 | tee -a ${LOG}
 /usr/bin/pmset -a disksleep 0 | tee -a ${LOG}
 
 # Hiding under UID500 users and setting login window to username/password entry.
 
-echo "" >> $LOG
-echo $( date )" - Hiding admin users and setting login window settings" >> $LOG
+logme "Hiding admin users and setting login window settings"
 defaults write /Library/Preferences/com.apple.loginwindow Hide500Users -bool true | tee -a ${LOG}
 defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool true | tee -a ${LOG}
 
 # Disable auto check for Software Updates
 
-echo "" >> $LOG
-echo $( date )" - Disabling Apple Software Update Checking" >> $LOG
+logme "Disabling Apple Software Update Checking"
 softwareupdate --schedule off | tee -a ${LOG}
 launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.initial.plist | tee -a ${LOG}
 launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.periodic.plist | tee -a ${LOG}
 
+# Make sure the computer has enrolled
+
+logme "Checking to see if JAMF enroll.sh is still running"
+
+while [ -d '/Library/Application Support/JAMF/FirstRun/Enroll' ]
+do
+   echo $( date )" - Computer enrolment into JSS in progress."
+   sleep 5
+done
+
 # Create Server local admin account
 
-echo "" >> $LOG
-echo $( date )" - Creating admin account" >> $LOG
-jamf createAccount -username admin -realname admin -password $SERVERPW -home /Users/admin -shell /bin/bash -admin | tee -a ${LOG}
+logme "Creating admin account"
+jamf createAccount -username $SERVERADMIN -realname $SERVERADMIN -password $SERVERPW -home /Users/admin -shell /bin/bash -admin | tee -a ${LOG}
+
+# New code curtesy of Rich Trouton & Charles Edge to auto setup Server.app before proceeding
+# See https://derflounder.wordpress.com/2015/10/29/automating-the-setup-of-os-x-server-on-el-capitan-and-yosemite/
+
+# Check for server.app presense, quit if not there
+
+if [[ ! -e "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server" ]]; then
+  logme "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server is not present."
+  exit 0
+fi
+
+logme "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server detected. Proceeding."
+
+# Export temporary user's username and password as environment values.
+# This export will allow these values to be used by the expect section
+
+export setupadmin="$SERVERADMIN"
+export setupadmin_password="$SERVERPW"
+
+# Accept the Server.app license and set up the server tools
+
+/usr/bin/expect<<EOF
+set timeout 300
+spawn /Applications/Server.app/Contents/ServerRoot/usr/sbin/server setup
+puts "$setupadmin"
+puts "$setupadmin_password"
+expect "Press Return to view the software license agreement." { send \r }
+expect "Do you agree to the terms of the software license agreement? (y/N)" { send "y\r" }
+expect "User name:" { send "$setupadmin\r" }
+expect "Password:" { send "$setupadmin_password\r" }
+expect "%"
+EOF
+
+logme "Server.app licence accepted. Proceeding."
+
+# That should have registered server.app correctly.
 
 # Save last imaged time
 
@@ -70,33 +142,19 @@ echo "`date`" > /usr/lastimaged
 
 # Disable spotlight indexing
 
-echo "" >> $LOG
-echo $( date )" - Disabling spotlight indexing" >> $LOG
+logme "Disabling spotlight indexing"
 mdutil -i off / | tee -a ${LOG}
 mdutil -d / | tee -a ${LOG}
 
 # Disable iCloud popup.
 
-echo "" >> $LOG
-echo $( date )" - Disabling iCloud popups" >> $LOG
+logme "Disabling iCloud popups"
 mv -f -v /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher /System/Library/CoreServices/Setup\ Assistant.app/Contents/SharedSupport/MiniLauncher.backup | tee -a ${LOG}
 
 # Enable ARD for remote access for all users.
 
-echo "" >> $LOG
-echo $( date )" - Enabling Apple Remote Management" >> $LOG
+logme "Enabling Apple Remote Management"
 /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all | tee -a ${LOG}
-
-# Make sure the computer has enrolled
-
-echo "" >> $LOG
-echo $( date )" - Checking to see if JAMF enroll.sh is still running" >> $LOG
-
-while [ -d '/Library/Application Support/JAMF/FirstRun/Enroll' ]
-do
-   echo $( date )" - Computer enrolment into JSS in progress."
-   sleep 5
-done
 
 # Set up error trapping function for multiple jamf binary processes
 
@@ -118,8 +176,7 @@ function multiplejamf {
 # Fix the incorrect model name in /Library/Preferences/SystemConfiguration/preferences.plist
 # Also make sure the .plist is in the correct format
 
-echo "" >> $LOG
-echo $( date )" - Fixing network settings and interfaces" >> $LOG
+logme "Fixing network settings and interfaces"
 
 if [[ "$PrefModel" != "$MacModel" ]];
 then
@@ -170,23 +227,21 @@ do
 	done
 done
 
-# Set the building to put the computer in the CS building
+# Set the building to put the computer in the Unmanaged building
 
-echo "" >> $LOG
-echo $( date )" - Configuring JSS record for server" >> $LOG
+logme "Configuring JSS record for server"
 	
 multiplejamf	
 jamf recon -building Unmanaged | tee -a ${LOG}
 	
-# Now set the department details to the desktops test department.
+# Now set the department details to the Casper DP department.
 	
 multiplejamf
 jamf recon -department CasperDP | tee -a ${LOG}
 
 # Refresh the MCX Settings
 
-echo "" >> $LOG
-echo $( date )" - Refreshing computer level MCX settings" >> $LOG
+logme "Refreshing computer level MCX settings"
 	
 multiplejamf
 jamf mcx | tee -a ${LOG}
@@ -203,14 +258,12 @@ jamf recon | tee -a ${LOG}
 
 # Enable root user for rsync purposes
 
-echo "" >> $LOG
-echo $( date )" - Enabling root account" >> $LOG
+logme "Enabling root account"
 dsenableroot -u admin -p $SERVERPW -r $SERVERPW
 
 # Enable SSH access for root and serveradmin users
 
-echo "" >> $LOG
-echo $( date )" - Enabling SSH access" >> $LOG
+logme "Enabling SSH access"
 dseditgroup -o delete -t group com.apple.access_ssh | tee -a ${LOG}
 dseditgroup -o create -q com.apple.access_ssh | tee -a ${LOG}
 dseditgroup -o edit -a caspermgt -t user com.apple.access_ssh | tee -a ${LOG}
@@ -219,8 +272,7 @@ dseditgroup -o edit -a admin -t user com.apple.access_ssh | tee -a ${LOG}
 
 # Create CasperAdmin and CasperInstall accounts. These must not have user folders or user shells!
 
-echo "" >> $LOG
-echo $( date )" - Creating casperadmin account" >> $LOG
+logme "Creating casperadmin account"
 dscl . create /Users/casperadmin | tee -a ${LOG}
 dscl . create /Users/casperadmin UserShell /usr/bin/false | tee -a ${LOG}
 dscl . create /Users/casperadmin RealName casperadmin | tee -a ${LOG}
@@ -228,8 +280,7 @@ dscl . create /Users/casperadmin UniqueID 502 | tee -a ${LOG}
 dscl . create /Users/casperadmin PrimaryGroupID 20 | tee -a ${LOG}
 dscl . passwd /Users/casperadmin c4sper4dmin | tee -a ${LOG}
 
-echo "" >> $LOG
-echo $( date )" - Creating casperinstall account" >> $LOG
+logme "Creating casperinstall account"
 dscl . create /Users/casperinstall | tee -a ${LOG}
 dscl . create /Users/casperinstall UserShell /usr/bin/false | tee -a ${LOG}
 dscl . create /Users/casperinstall RealName casperinstall | tee -a ${LOG}
@@ -267,8 +318,7 @@ ENDRSAKEY
 
 # Lock down SSH access to rsync service only
 
-echo "" >> $LOG
-echo $( date )" - Lock root ssh to rsync command" >> $LOG
+logme "Lock root ssh to rsync command"
 
 touch /var/root/.ssh/authorized_keys
 cat > /var/root/.ssh/authorized_keys << ENDAUTHKEY
@@ -280,8 +330,7 @@ chmod 644 /var/root/.ssh/authorized_keys >> $LOG
 
 # Make and lock down working folder
 
-echo "" >> $LOG
-echo $( date )" - Create scripts folder, ssh key and validate-rsync file" >> $LOG
+logme "Create scripts folder, ssh key and validate-rsync file"
 
 mkdir /usr/local/
 mkdir /usr/local/scripts
@@ -322,8 +371,7 @@ chmod 600 /var/root/.ssh/rsync-key.pub | tee -a ${LOG}
 
 # Add servers to /var/root/.ssh/known_hosts file.
 
-echo "" >> $LOG
-echo $( date )" - Adding current casper dp servers to known_hosts file" >> $LOG
+logme "Adding current casper dp servers to known_hosts file"
 
 [ -e /var/root/.ssh/known_hosts ] || touch /var/root/.ssh/known_hosts
 for host in \
@@ -493,8 +541,7 @@ esac
 
 # Make sure the five services we need are off
 
-echo "" >> $LOG
-echo $( date )" - Stopping services before configuration" >> $LOG
+logme "Stopping services before configuration"
 
 serveradmin stop afp | tee -a ${LOG}
 serveradmin stop smb | tee -a ${LOG}
@@ -508,14 +555,12 @@ serveradmin settings info:enableSNMP = no | tee -a ${LOG}
 
 # Is this the primary server? If so, sync from secondary server
 
-echo "" >> $LOG
-
 if [ "$computername" == "server1" ]
 then
-	echo $( date )" - Initial CasperShare sync from server server2" >> $LOG
+	logme "Initial CasperShare sync from server server2"
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/CasperShare/ /CasperShare >> $LOG
 else
-	echo $( date )" - Initial CasperShare sync from server server1" >> $LOG
+	logme "Initial CasperShare sync from server server1"
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/CasperShare/ /CasperShare >> $LOG
 fi
 
@@ -523,36 +568,33 @@ fi
 
 # Is this the primary server? If so, sync from secondary server
 
-echo "" >> $LOG
-
 if [ "$computername" == "server1" ]
 then
-	echo $( date )" - Initial netboot image sync from server server2" >> $LOG;
+	logme "Initial netboot image sync from server server2"
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
 else
-	echo $( date )" - Initial netboot image sync from server server1" >> $LOG;
+	logme "Initial netboot image sync from server server1"
 	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
 fi
 
 # Set IP address depending on server computername for Ethernet only
 
-echo "" >> $LOG
-echo $( date )" - Server computer name set to: "$computername >> $LOG
+logme "Server computer name set to: $computername"
 
 case $computername in
 
 	server1 )
-	echo $( date )" - Setting Ethernet IP address to 10.1.2.1" >> $LOG
+	logme "Setting Ethernet IP address to 10.1.2.1"
 	networksetup -setmanual Ethernet 10.1.2.1 255.255.255.0 10.1.1.1 | tee -a ${LOG}
 	;;
 
 	server2 )
-	echo $( date )" - Setting Ethernet IP address to 10.2.2.1" >> $LOG
+	logme "Setting Ethernet IP address to 10.2.2.1"
 	networksetup -setmanual Ethernet 10.2.2.1 255.255.255.0 10.2.1.1 | tee -a ${LOG}
 	;;
 
 	server3 )
-	echo $( date )" - Setting Ethernet IP address to 10.3.2.1" >> $LOG
+	logme "Setting Ethernet IP address to 10.3.2.1"
 	networksetup -setmanual Ethernet 10.3.2.1 255.255.255.0 10.3.1.1 | tee -a ${LOG}
 	;;
 
@@ -560,22 +602,19 @@ esac
 
 # Now set proxy server so rest of system can see out
 
-echo "" >> $LOG
-echo $( date )" - Setting proxy server information" >> $LOG
+logme "Setting proxy server information"
 networksetup -setwebproxy Ethernet proxy.server port | tee -a ${LOG}
 networksetup -setsecurewebproxy Ethernet proxy.server port | tee -a ${LOG}
 
 # Force DNS and Search Domain server settings
 
-echo "" >> $LOG
-echo $( date )" - Setting DNS and Search Domain information" >> $LOG
+logme "Setting DNS and Search Domain information"
 networksetup -setdnsservers Ethernet dns1 dns2 | tee -a ${LOG}
 networksetup -setsearchdomains Ethernet domain1 domain2 | tee -a ${LOG}
 
 # Set proxy server environment variables so JAMF binary can see out
 
-echo "" >> $LOG
-echo $( date )" - Setting proxy cache settings" >> $LOG
+logme "Setting proxy cache settings"
 echo "export HTTP_PROXY="proxy.server:port"" >> /etc/profile
 echo "export http_proxy="proxy.server:port"" >> /etc/profile
 echo "export HTTP_PROXY="proxy.server:port"" >> /etc/bashrc
@@ -583,8 +622,7 @@ echo "export http_proxy="proxy.server:port"" >> /etc/bashrc
 
 # Default AFP share configuration
 
-echo "" >> $LOG
-echo $( date )" - Configuring AFP service" >> $LOG
+logme "Configuring AFP service"
 
 cat << SERVERADMIN_AFP | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 afp:attemptAdminAuth = no
@@ -643,8 +681,7 @@ SERVERADMIN_AFP
 
 # Default SMB share configuration
 
-echo "" >> $LOG
-echo $( date )" - Configuring SMB service" >> $LOG
+logme "Configuring SMB service"
 
 cat << SERVERADMIN_SMB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 smb:EnabledServices:_array_index:0 = "disk"
@@ -655,8 +692,7 @@ SERVERADMIN_SMB
 
 # Default Web configuration for HTTPS distribution
 
-echo "" >> $LOG
-echo $( date )" - Configuring HTTP service" >> $LOG
+logme "Configuring HTTP service"
 
 cat << SERVERADMIN_WEB | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 web:defaultSite:aliases:_array_index:0:matchType = 0
@@ -666,8 +702,7 @@ SERVERADMIN_WEB
 
 # Default Sharing configuration
 
-echo "" >> $LOG
-echo $( date )" - Configuring Sharing service" >> $LOG
+logme "Configuring Sharing service"
 
 cat << SERVERADMIN_SHARING | sudo /Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings
 sharing:sharePointList:_array_id:/CasperShare:smbName = "CasperShare"
@@ -735,8 +770,7 @@ SERVERADMIN_SHARING
 
 # Write a snmpd.conf file that will allow monitoring via opsview/cacti
 
-echo "" >> $LOG
-echo $( date )" - Configuring SNMP service" >> $LOG
+logme "Configuring SNMP service"
 
 rm /etc/snmp/snmpd.conf
 touch /etc/snmp/snmpd.conf
@@ -890,8 +924,7 @@ serveradmin start nfs | tee -a ${LOG}
 
 # Finally set up the admin user dock the way we like it
 
-echo "" >> $LOG
-echo $( date )" - Setting up the dock" >> $LOG
+logme "Setting up the dock"
 
 # Clear the dock!
 
@@ -912,8 +945,7 @@ $DU --add /Applications/Utilities/Terminal.app --allhomes | tee -a ${LOG}
 
 # Last of all, configure the desktop background!
 
-echo "" >> $LOG
-echo $( date )" - Setting up the desktop background" >> $LOG
+logme "Setting up the desktop background"
 
 sqlite3 /Users/ualserv/Library/Application\ Support/Dock/desktoppicture.db << EOF
 UPDATE data SET value = "/Library/Desktop Pictures/default_black2560x1600.jpg";
@@ -924,8 +956,7 @@ killall Dock
 
 # All done!
 
-echo "" >> $LOG
-echo $( date )" - Completed server build" >> $LOG
+logme "Completed server build"
 
 # Making sure the JAMF firstrun folder is empty as this occasionally doesn't clear itself up.
 rm -rf /Library/Application\ Support/JAMF/FirstRun/*
