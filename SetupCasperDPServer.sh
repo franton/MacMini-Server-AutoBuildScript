@@ -947,7 +947,7 @@ $DU --add /Applications/Utilities/Terminal.app --allhomes | tee -a ${LOG}
 
 logme "Setting up the desktop background"
 
-sqlite3 /Users/ualserv/Library/Application\ Support/Dock/desktoppicture.db << EOF
+sqlite3 /Users/admin/Library/Application\ Support/Dock/desktoppicture.db << EOF
 UPDATE data SET value = "/Library/Desktop Pictures/default_black2560x1600.jpg";
 .quit
 EOF
