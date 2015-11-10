@@ -17,6 +17,7 @@
 # Version : 1.6 - 06-08-2014 - Removed netboot configuration. It configures itself from the images ... d'oh!
 
 # Version : 2.0 - 29-09-2015 - Code from Rich Trouton & Charles Edge to auto setup Server.app. Cleaned up logging code to something less primitive.
+# Version : 2.1 - 09-11-2015 - Added CocoaDialog based prompting so we're not waiting on a blank screen for a reboot. This requires loceee's CD fork from his github.
 
 # Current supported version of OS X Server is 5.03. Please don't use anything earlier than this!
 
@@ -31,94 +32,142 @@ errorcode=1
 SERVERADMIN=admin
 SERVERPW=password
 computername=$( scutil --get ComputerName )
+cd=/usr/local/bin/cocoaDialog.app/Contents/MacOS/cocoaDialog
 DU=/usr/local/scripts/dockutil.py
 LOGFOLDER="/private/var/log/organisation name here"
 LOG=$LOGFOLDER"/Server-Setup.log"
 
 if [ ! -d "$LOGFOLDER" ];
 then
-mkdir $LOGFOLDER
+	mkdir $LOGFOLDER
 fi
 
 # Set functions here
 
-logme()
+function logme()
 {
 # Check to see if function has been called correctly
-if [ -z "$1" ]
-then
-echo $( date )" - logme function call error: no text passed to function! Please recheck code!"
-exit 1
-fi
+	if [ -z "$1" ]
+	then
+		echo $( date )" - logme function call error: no text passed to function! Please recheck code!"
+		exit 1
+	fi
 
 # Log the passed details
-echo $( date )" - "$1 >> $LOG
-echo "" >> $LOG
+	echo $( date )" - "$1 >> $LOG
+	echo "" >> $LOG
 }
+
+function cdmsg ()
+{
+	$cd msgbox --icon info --title "$1" --text "$2" --informative-text "$3" --float &
+	cdpid=$!
+	sleep 3
+}
+
+function multiplejamf ()
+{
+	# Check to see if jamf binary is running, and wait for it to finish.
+	# Trying to avoid multiple triggers running at once at the expense of time taken.
+	# There are two existing jamf processes running at all times. More than that is bad for us!
+
+	TEST=$( pgrep jamf | wc -l )
+
+	while [ $TEST -gt 2 ]
+	do
+		/bin/echo "Waiting for existing jamf processes to finish ..." >> $LOG
+		sleep 3
+		TEST=$( pgrep jamf | wc -l )
+	done
+}
+
+# Print a message to let people know what's happening and go from there!
+
+cdmsg "Mac Server Configuration" "Configuration in Progress" "This will take some time to complete. Please wait."
+kill $cdpid
 
 # Set System Timezone to avoid clock sync issues and record imaging time.
 
-systemsetup -settimezone Europe/London
-systemsetup -setusingnetworktime on
-systemsetup -setnetworktimeserver timeserver.address
-/usr/sbin/ntpd -g -q
+cdmsg "Mac Server Configuration" "Time Settings" "Stage (1/31). Please Wait."
+	systemsetup -settimezone Europe/London
+	systemsetup -setusingnetworktime on
+	systemsetup -setnetworktimeserver timeserver.address
+	/usr/sbin/ntpd -g -q
+kill $cdpid
 
 # Check and start log file
 
 echo "Server Build - started at "$( date ) >> $LOG
 
+# Save last imaged time
+
+touch /usr/lastimaged
+echo "`date`" > /usr/lastimaged
+
 # Set energy saving settings to never sleep
 
-logme "Disabling sleep settings"
-/usr/bin/pmset -a sleep 0 | tee -a ${LOG}
-/usr/bin/pmset -a displaysleep 0 | tee -a ${LOG}
-/usr/bin/pmset -a disksleep 0 | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Sleep Settings" "Stage (2/31). Please Wait."
+	logme "Disabling sleep settings"
+	/usr/bin/pmset -a sleep 0 | tee -a ${LOG}
+	/usr/bin/pmset -a displaysleep 0 | tee -a ${LOG}
+	/usr/bin/pmset -a disksleep 0 | tee -a ${LOG}
+kill $cdpid
 
 # Hiding under UID500 users and setting login window to username/password entry.
 
-logme "Hiding admin users and setting login window settings"
-defaults write /Library/Preferences/com.apple.loginwindow Hide500Users -bool true | tee -a ${LOG}
-defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool true | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "LoginWindow Settings" "Stage (3/31). Please Wait."
+	logme "Hiding admin users and setting login window settings"
+	defaults write /Library/Preferences/com.apple.loginwindow Hide500Users -bool true | tee -a ${LOG}
+	defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool true | tee -a ${LOG}
+kill $cdpid
 
 # Disable auto check for Software Updates
 
-logme "Disabling Apple Software Update Checking"
-softwareupdate --schedule off | tee -a ${LOG}
-launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.initial.plist | tee -a ${LOG}
-launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.periodic.plist | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Apple Software Update Settings" "Stage (4/31). Please Wait."
+	logme "Disabling Apple Software Update Checking"
+	softwareupdate --schedule off | tee -a ${LOG}
+	launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.initial.plist | tee -a ${LOG}
+	launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdatecheck.periodic.plist | tee -a ${LOG}
+kill $cdpid
 
 # Make sure the computer has enrolled
 
-logme "Checking to see if JAMF enroll.sh is still running"
+cdmsg "Mac Server Configuration" "Waiting for JSS Enrollment" "Stage (5/31). Please Wait."
+	logme "Checking to see if JAMF enroll.sh is still running"
 
-while [ -d '/Library/Application Support/JAMF/FirstRun/Enroll' ]
-do
-   echo $( date )" - Computer enrolment into JSS in progress."
-   sleep 5
-done
+	while [ -d '/Library/Application Support/JAMF/FirstRun/Enroll' ]
+	do
+	   echo $( date )" - Computer enrolment into JSS in progress."
+	   sleep 5
+	done
+kill $cdpid
 
 # Create Server local admin account
 
-logme "Creating admin account"
-jamf createAccount -username $SERVERADMIN -realname $SERVERADMIN -password $SERVERPW -home /Users/admin -shell /bin/bash -admin | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Creating admin account" "Stage (6/31). Please Wait."
+	logme "Creating admin account"
+	jamf createAccount -username $SERVERADMIN -realname $SERVERADMIN -password $SERVERPW -home /Users/admin -shell /bin/bash -admin | tee -a ${LOG}
+kill $cdpid
 
 # New code curtesy of Rich Trouton & Charles Edge to auto setup Server.app before proceeding
 # See https://derflounder.wordpress.com/2015/10/29/automating-the-setup-of-os-x-server-on-el-capitan-and-yosemite/
 
 # Check for server.app presense, quit if not there
 
-if [[ ! -e "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server" ]]; then
-  logme "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server is not present."
-  exit 0
-fi
+cdmsg "Mac Server Configuration" "Registering Server.app" "Stage (7/31). Please Wait."
+	if [[ ! -e "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server" ]]; then
+	  logme "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server is not present."
+	  kill $cdpid
+	  exit 0
+	fi
 
-logme "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server detected. Proceeding."
+	logme "/Applications/Server.app/Contents/ServerRoot/usr/sbin/server detected. Proceeding."
 
 # Export temporary user's username and password as environment values.
 # This export will allow these values to be used by the expect section
 
-export setupadmin="$SERVERADMIN"
-export setupadmin_password="$SERVERPW"
+	export setupadmin="$SERVERADMIN"
+	export setupadmin_password="$SERVERPW"
 
 # Accept the Server.app license and set up the server tools
 
@@ -138,193 +187,192 @@ logme "Server.app licence accepted. Proceeding."
 
 # That should have registered server.app correctly.
 
-# Save last imaged time
-
-touch /usr/lastimaged
-echo "`date`" > /usr/lastimaged
+kill $cdpid
 
 # Disable spotlight indexing
 
-logme "Disabling spotlight indexing"
-mdutil -i off / | tee -a ${LOG}
-mdutil -d / | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Disabling Spotlight Indexing" "Stage (8/31). Please Wait."
+	logme "Disabling spotlight indexing"
+	mdutil -i off / | tee -a ${LOG}
+	mdutil -d / | tee -a ${LOG}
+kill $cdpid
 
 # Disable iCloud and Diagnostics popup.
 # My original hack has stopped working since 10.9 so replaced with Rich Trouton's more elegant method.
 # https://github.com/rtrouton/rtrouton_scripts/tree/master/rtrouton_scripts/disable_apple_icloud_and_diagnostic_pop_ups
 
-logme "Disabling iCloud and Diagnostics messages"
+cdmsg "Mac Server Configuration" "Disabling iCloud and Diagnostics messages" "Stage (9/31). Please Wait."
+	logme "Disabling iCloud and Diagnostics messages"
 
-for USER_HOME in /Users/*
-  do
-    USER_UID=`basename "${USER_HOME}"`
-    if [ ! "${USER_UID}" = "Shared" ]; then
-      if [ ! -d "${USER_HOME}"/Library/Preferences ]; then
-        /bin/mkdir -p "${USER_HOME}"/Library/Preferences
-        /usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library
-        /usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library/Preferences
-      fi
-      if [ -d "${USER_HOME}"/Library/Preferences ]; then
-        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant DidSeeCloudSetup -bool TRUE
-        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant GestureMovieSeen none
-        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastSeenCloudProductVersion "${sw_vers}"
-        /usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastSeenBuddyBuildVersion "${sw_build}"
-        /usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant.plist
-      fi
-    fi
-  done
-fi
+	for USER_HOME in /Users/*
+	  do
+		USER_UID=`basename "${USER_HOME}"`
+		if [ ! "${USER_UID}" = "Shared" ]; then
+		  if [ ! -d "${USER_HOME}"/Library/Preferences ]; then
+			/bin/mkdir -p "${USER_HOME}"/Library/Preferences
+			/usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library
+			/usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library/Preferences
+		  fi
+		  if [ -d "${USER_HOME}"/Library/Preferences ]; then
+			/usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant DidSeeCloudSetup -bool TRUE
+			/usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant GestureMovieSeen none
+			/usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastSeenCloudProductVersion "${sw_vers}"
+			/usr/bin/defaults write "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant LastSeenBuddyBuildVersion "${sw_build}"
+			/usr/sbin/chown "${USER_UID}" "${USER_HOME}"/Library/Preferences/com.apple.SetupAssistant.plist
+		  fi
+		fi
+	  done
+	fi
+kill $cdpid
 
 # Enable ARD for remote access for all users.
 
-logme "Enabling Apple Remote Management"
-/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all | tee -a ${LOG}
-
-# Set up error trapping function for multiple jamf binary processes
-
-function multiplejamf {
-	# Check to see if jamf binary is running, and wait for it to finish.
-	# Trying to avoid multiple triggers running at once at the expense of time taken.
-	# There are two existing jamf processes running at all times. More than that is bad for us!
-
-	TEST=$( pgrep jamf | wc -l )
-
-	while [ $TEST -gt 2 ]
-	do
-		/bin/echo "Waiting for existing jamf processes to finish ..." >> $LOG
-		sleep 3
-		TEST=$( pgrep jamf | wc -l )
-	done
-}
+cdmsg "Mac Server Configuration" "Enabling Apple Remote Management" "Stage (10/31). Please Wait."
+	logme "Enabling Apple Remote Management"
+	/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all | tee -a ${LOG}
+kill $cdpid
 
 # Fix the incorrect model name in /Library/Preferences/SystemConfiguration/preferences.plist
 # Also make sure the .plist is in the correct format
 
-logme "Fixing network settings and interfaces"
+cdmsg "Mac Server Configuration" "Fixing network settings and interfaces" "Stage (11/31). Please Wait."
+	logme "Fixing network settings and interfaces"
 
-if [[ "$PrefModel" != "$MacModel" ]];
-then
-  /bin/echo $AdminPW | sudo -S defaults write /Library/Preferences/SystemConfiguration/preferences.plist Model $MacModel
-  /bin/echo $AdminPW | sudo -S plutil -convert xml1 /Library/Preferences/SystemConfiguration/preferences.plist
-fi
+	if [[ "$PrefModel" != "$MacModel" ]];
+	then
+	  /bin/echo $AdminPW | sudo -S defaults write /Library/Preferences/SystemConfiguration/preferences.plist Model $MacModel
+	  /bin/echo $AdminPW | sudo -S plutil -convert xml1 /Library/Preferences/SystemConfiguration/preferences.plist
+	fi
+kill $cdpid
 
 # Fix the incorrect network service names
 # Script lovingly stolen from https://jamfnation.jamfsoftware.com/discussion.html?id=3422
 
-# Detect new network hardware
-networksetup -detectnewhardware
+cdmsg "Mac Server Configuration" "Fixing incorrect network service names" "Stage (12/31). Please Wait."
+	# Detect new network hardware
+	networksetup -detectnewhardware
 
-# List all network services and read one by one
-networksetup -listallnetworkservices | tail -n +2 | while read service
-do
-
-# Remove asterisk from string for renaming disabled services
-	service=${service#*\*}
-
-# Use filter to select next line which has the hardware port defined
-	filter=false
-
-# Display network services
-	networksetup -listnetworkserviceorder | while read serviceorder
+	# List all network services and read one by one
+	networksetup -listallnetworkservices | tail -n +2 | while read service
 	do
-		if [[ ${filter} == true ]]
-		then
-			# Grab hardware port
-			hardwareport=`echo ${serviceorder} | sed -e 's/(Hardware Port: //;s/, Device:.*//'`
-			
-			# Check if service name if different
-			if [[ ${service} != ${hardwareport} ]]
-			then
-				# Rename the network service
-				networksetup -renamenetworkservice "${service}" "${hardwareport}"
-				echo -e "Renamed network service \"${service}\" to \"${hardwareport}\""
-			fi
-		fi
 
-		if [[ ${serviceorder} == *${service} ]]
-		then		
-			# Got the line with the service. Set the filter to true to grab the next line which contains the hardware port
-			filter=true
-			else
-			filter=false
-		fi
+	# Remove asterisk from string for renaming disabled services
+		service=${service#*\*}
+
+	# Use filter to select next line which has the hardware port defined
+		filter=false
+
+	# Display network services
+		networksetup -listnetworkserviceorder | while read serviceorder
+		do
+			if [[ ${filter} == true ]]
+			then
+				# Grab hardware port
+				hardwareport=`echo ${serviceorder} | sed -e 's/(Hardware Port: //;s/, Device:.*//'`
+			
+				# Check if service name if different
+				if [[ ${service} != ${hardwareport} ]]
+				then
+					# Rename the network service
+					networksetup -renamenetworkservice "${service}" "${hardwareport}"
+					echo -e "Renamed network service \"${service}\" to \"${hardwareport}\""
+				fi
+			fi
+
+			if [[ ${serviceorder} == *${service} ]]
+			then		
+				# Got the line with the service. Set the filter to true to grab the next line which contains the hardware port
+				filter=true
+				else
+				filter=false
+			fi
+		done
 	done
-done
+kill $cdpid
 
 # Set the building to put the computer in the Unmanaged building
 
-logme "Configuring JSS record for server"
+cdmsg "Mac Server Configuration" "Configuring Server JSS Record" "Stage (13/31). Please Wait."
+	logme "Configuring JSS record for server"
 	
-multiplejamf	
-jamf recon -building Unmanaged | tee -a ${LOG}
+	multiplejamf	
+	jamf recon -building Unmanaged | tee -a ${LOG}
 	
-# Now set the department details to the Casper DP department.
+	# Now set the department details to the Casper DP department.
 	
-multiplejamf
-jamf recon -department CasperDP | tee -a ${LOG}
+	multiplejamf
+	jamf recon -department CasperDP | tee -a ${LOG}
+kill $cdpid
 
-# Refresh the MCX Settings
+# Install server specific software via manual trigger.
 
-logme "Refreshing computer level MCX settings"
-	
-multiplejamf
-jamf mcx | tee -a ${LOG}
-
-# Install server specific configuration.
-
-multiplejamf
-jamf policy -trigger CasperServer | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Installing Server specific software" "Stage (14/31). Please Wait."
+	multiplejamf
+	jamf policy -trigger CasperServer | tee -a ${LOG}
+kill $cdpid
 
 # Final recon to make sure Inventory is up to date.
 
-multiplejamf
-jamf recon | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Taking Casper Inventory of Server" "Stage (15/31). Please Wait."
+	multiplejamf
+	jamf recon | tee -a ${LOG}
+kill $cdpid
 
 # Enable root user for rsync purposes
 
-logme "Enabling root account"
-dsenableroot -u admin -p $SERVERPW -r $SERVERPW
+cdmsg "Mac Server Configuration" "Enabling root account for rsync only" "Stage (16/31). Please Wait."
+	logme "Enabling root account"
+	dsenableroot -u admin -p $SERVERPW -r $SERVERPW
+kill $cdpid
 
 # Enable SSH access for root and serveradmin users
 
-logme "Enabling SSH access"
-dseditgroup -o delete -t group com.apple.access_ssh | tee -a ${LOG}
-dseditgroup -o create -q com.apple.access_ssh | tee -a ${LOG}
-dseditgroup -o edit -a caspermgt -t user com.apple.access_ssh | tee -a ${LOG}
-dseditgroup -o edit -a root -t user com.apple.access_ssh | tee -a ${LOG}
-dseditgroup -o edit -a admin -t user com.apple.access_ssh | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Enabling SSH access" "Stage (17/31). Please Wait."
+	logme "Enabling SSH access"
+	dseditgroup -o delete -t group com.apple.access_ssh | tee -a ${LOG}
+	dseditgroup -o create -q com.apple.access_ssh | tee -a ${LOG}
+	dseditgroup -o edit -a caspermgt -t user com.apple.access_ssh | tee -a ${LOG}
+	dseditgroup -o edit -a root -t user com.apple.access_ssh | tee -a ${LOG}
+	dseditgroup -o edit -a admin -t user com.apple.access_ssh | tee -a ${LOG}
+kill $cdpid
 
 # Create CasperAdmin and CasperInstall accounts. These must not have user folders or user shells!
 
-logme "Creating casperadmin account"
-dscl . create /Users/casperadmin | tee -a ${LOG}
-dscl . create /Users/casperadmin UserShell /usr/bin/false | tee -a ${LOG}
-dscl . create /Users/casperadmin RealName casperadmin | tee -a ${LOG}
-dscl . create /Users/casperadmin UniqueID 502 | tee -a ${LOG}
-dscl . create /Users/casperadmin PrimaryGroupID 20 | tee -a ${LOG}
-dscl . passwd /Users/casperadmin c4sper4dmin | tee -a ${LOG}
+cdmsg "Mac Server Configuration" "Creating Casper service accounts" "Stage (18/31). Please Wait."
+	logme "Creating casperadmin account"
+	dscl . create /Users/casperadmin | tee -a ${LOG}
+	dscl . create /Users/casperadmin UserShell /usr/bin/false | tee -a ${LOG}
+	dscl . create /Users/casperadmin RealName casperadmin | tee -a ${LOG}
+	dscl . create /Users/casperadmin UniqueID 502 | tee -a ${LOG}
+	dscl . create /Users/casperadmin PrimaryGroupID 20 | tee -a ${LOG}
+	dscl . passwd /Users/casperadmin c4sper4dmin | tee -a ${LOG}
 
-logme "Creating casperinstall account"
-dscl . create /Users/casperinstall | tee -a ${LOG}
-dscl . create /Users/casperinstall UserShell /usr/bin/false | tee -a ${LOG}
-dscl . create /Users/casperinstall RealName casperinstall | tee -a ${LOG}
-dscl . create /Users/casperinstall UniqueID 503 | tee -a ${LOG}
-dscl . create /Users/casperinstall PrimaryGroupID 20 | tee -a ${LOG}
-dscl . passwd /Users/casperinstall c4sper4dmin | tee -a ${LOG}
+	logme "Creating casperinstall account"
+	dscl . create /Users/casperinstall | tee -a ${LOG}
+	dscl . create /Users/casperinstall UserShell /usr/bin/false | tee -a ${LOG}
+	dscl . create /Users/casperinstall RealName casperinstall | tee -a ${LOG}
+	dscl . create /Users/casperinstall UniqueID 503 | tee -a ${LOG}
+	dscl . create /Users/casperinstall PrimaryGroupID 20 | tee -a ${LOG}
+	dscl . passwd /Users/casperinstall c4sper4dmin | tee -a ${LOG}
+kill $cdpid
 
 # Create caspershare folder and set ACL permissions for casperadmin, casperinstall and serveradmin users.
 
-mkdir /CasperShare
-chmod -R +a "admin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
-chmod -R +a "casperadmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
-chmod -R +a "casperinstall allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
-chmod -R +a "_www allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+cdmsg "Mac Server Configuration" "Creating CasperShare folder and ACL's" "Stage (19/31). Please Wait."
+	mkdir /CasperShare
+	chmod -R +a "admin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+	chmod -R +a "casperadmin allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+	chmod -R +a "casperinstall allow list,search,readattr,readextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+	chmod -R +a "_www allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit" /CasperShare
+kill $cdpid
 
 # Create SSH folder for root user
 
-mkdir /var/root/.ssh >> $LOG
-chown root:wheel /var/root/.ssh >> $LOG
-chmod 700 /var/root/.ssh >> $LOG
+cdmsg "Mac Server Configuration" "Configuring rsync SSH access" "Stage (20/31). Please Wait."
+
+	mkdir /var/root/.ssh >> $LOG
+	chown root:wheel /var/root/.ssh >> $LOG
+	chmod 700 /var/root/.ssh >> $LOG
 
 # Create SSH key
 
@@ -393,25 +441,31 @@ chmod 600 /var/root/.ssh/rsync-key | tee -a ${LOG}
 chown root:wheel /var/root/.ssh/rsync-key.pub | tee -a ${LOG}
 chmod 600 /var/root/.ssh/rsync-key.pub | tee -a ${LOG}
 
+kill $cdpid
+
 # Add servers to /var/root/.ssh/known_hosts file.
 
-logme "Adding current casper dp servers to known_hosts file"
+cdmsg "Mac Server Configuration" "Adding known servers to authorised hosts file" "Stage (21/31). Please Wait."
+	logme "Adding current casper dp servers to known_hosts file"
 
-[ -e /var/root/.ssh/known_hosts ] || touch /var/root/.ssh/known_hosts
-for host in \
-    server1 \
-    server2 \
-    server3 \
-; do
-    ssh-keygen -R $host -f /var/root/.ssh/known_hosts
-    ssh -q -o StrictHostKeyChecking=no -o BatchMode=yes -o UserKnownHostsFile=/var/root/.ssh/known_hosts $host echo '' || true
-done
+	[ -e /var/root/.ssh/known_hosts ] || touch /var/root/.ssh/known_hosts
+	for host in \
+		server1 \
+		server2 \
+		server3 \
+	; do
+		ssh-keygen -R $host -f /var/root/.ssh/known_hosts
+		ssh -q -o StrictHostKeyChecking=no -o BatchMode=yes -o UserKnownHostsFile=/var/root/.ssh/known_hosts $host echo '' || true
+	done
 
-chown root:wheel /var/root/.ssh/known_hosts
-chmod 755 /var/root/.ssh/known_hosts
+	chown root:wheel /var/root/.ssh/known_hosts
+	chmod 755 /var/root/.ssh/known_hosts
+kill $cdpid
 
 # Create rsync script for specific server computernames.
 # There's a lot of \ being used in places. That's to stop the cat command expanding variables/commands out and breaking the generated files.
+
+cdmsg "Mac Server Configuration" "Create rsync script and LaunchDaemon" "Stage (22/31). Please Wait."
 
 case $computername in
 
@@ -563,88 +617,102 @@ chmod 755 /usr/local/scripts/casper-sync.sh >> $LOG
 
 esac
 
+kill $cdpid
+
 # Make sure the five services we need are off
 
-logme "Stopping services before configuration"
+cdmsg "Mac Server Configuration" "Stopping any Server.app services" "Stage (23/31). Please Wait."
+	logme "Stopping services before configuration"
 
-serveradmin stop afp | tee -a ${LOG}
-serveradmin stop smb | tee -a ${LOG}
-serveradmin stop web | tee -a ${LOG}
-serveradmin stop nfs | tee -a ${LOG}
-serveradmin stop netboot | tee -a ${LOG}
-serveradmin stop sharing | tee -a ${LOG}
-serveradmin settings info:enableSNMP = no | tee -a ${LOG}
+	serveradmin stop afp | tee -a ${LOG}
+	serveradmin stop smb | tee -a ${LOG}
+	serveradmin stop web | tee -a ${LOG}
+	serveradmin stop nfs | tee -a ${LOG}
+	serveradmin stop netboot | tee -a ${LOG}
+	serveradmin stop sharing | tee -a ${LOG}
+	serveradmin settings info:enableSNMP = no | tee -a ${LOG}
+kill $cdpid
 
 # Initial Sync of CasperShare
 
+cdmsg "Mac Server Configuration" "Syncing CasperShare from existing servers" "Stage (24/31). Please Wait. This really will take some time!"
+
 # Is this the primary server? If so, sync from secondary server
 
-if [ "$computername" == "server1" ]
-then
-	logme "Initial CasperShare sync from server server2"
-	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/CasperShare/ /CasperShare >> $LOG
-else
-	logme "Initial CasperShare sync from server server1"
-	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/CasperShare/ /CasperShare >> $LOG
-fi
+	if [ "$computername" == "server1" ]
+	then
+		logme "Initial CasperShare sync from server server2"
+		/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/CasperShare/ /CasperShare >> $LOG
+	else
+		logme "Initial CasperShare sync from server server1"
+		/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/CasperShare/ /CasperShare >> $LOG
+	fi
+kill $cdpid 
 
 # Sync Netboot image
 
+cdmsg "Mac Server Configuration" "Syncing NetBoot .nbi(s) from existing servers" "Stage (25/31). Please Wait. This really will take some time!"
+
 # Is this the primary server? If so, sync from secondary server
 
-if [ "$computername" == "server1" ]
-then
-	logme "Initial netboot image sync from server server2"
-	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
-else
-	logme "Initial netboot image sync from server server1"
-	/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
-fi
+	if [ "$computername" == "server1" ]
+	then
+		logme "Initial netboot image sync from server server2"
+		/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server2:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
+	else
+		logme "Initial netboot image sync from server server1"
+		/usr/bin/rsync -a4hxvz --delete-after --force -e "ssh -i /var/root/.ssh/rsync-key" root@server1:/Library/NetBoot/NetBootSP0/ /Library/NetBoot/NetBootSP0/ >> $LOG
+	fi
+kill $cdpid
 
 # Set IP address depending on server computername for Ethernet only
 
+cdmsg "Mac Server Configuration" "Configuring Network Settings" "Stage (26/31). Please Wait."
+
 logme "Server computer name set to: $computername"
 
-case $computername in
+	case $computername in
 
-	server1 )
-	logme "Setting Ethernet IP address to 10.1.2.1"
-	networksetup -setmanual Ethernet 10.1.2.1 255.255.255.0 10.1.1.1 | tee -a ${LOG}
-	;;
+		server1 )
+		logme "Setting Ethernet IP address to 10.1.2.1"
+		networksetup -setmanual Ethernet 10.1.2.1 255.255.255.0 10.1.1.1 | tee -a ${LOG}
+		;;
 
-	server2 )
-	logme "Setting Ethernet IP address to 10.2.2.1"
-	networksetup -setmanual Ethernet 10.2.2.1 255.255.255.0 10.2.1.1 | tee -a ${LOG}
-	;;
+		server2 )
+		logme "Setting Ethernet IP address to 10.2.2.1"
+		networksetup -setmanual Ethernet 10.2.2.1 255.255.255.0 10.2.1.1 | tee -a ${LOG}
+		;;
 
-	server3 )
-	logme "Setting Ethernet IP address to 10.3.2.1"
-	networksetup -setmanual Ethernet 10.3.2.1 255.255.255.0 10.3.1.1 | tee -a ${LOG}
-	;;
+		server3 )
+		logme "Setting Ethernet IP address to 10.3.2.1"
+		networksetup -setmanual Ethernet 10.3.2.1 255.255.255.0 10.3.1.1 | tee -a ${LOG}
+		;;
 
-esac
+	esac
 
 # Now set proxy server so rest of system can see out
 
-logme "Setting proxy server information"
-networksetup -setwebproxy Ethernet proxy.server port | tee -a ${LOG}
-networksetup -setsecurewebproxy Ethernet proxy.server port | tee -a ${LOG}
+	logme "Setting proxy server information"
+	networksetup -setwebproxy Ethernet proxy.server port | tee -a ${LOG}
+	networksetup -setsecurewebproxy Ethernet proxy.server port | tee -a ${LOG}
 
 # Force DNS and Search Domain server settings
 
-logme "Setting DNS and Search Domain information"
-networksetup -setdnsservers Ethernet dns1 dns2 | tee -a ${LOG}
-networksetup -setsearchdomains Ethernet domain1 domain2 | tee -a ${LOG}
+	logme "Setting DNS and Search Domain information"
+	networksetup -setdnsservers Ethernet dns1 dns2 | tee -a ${LOG}
+	networksetup -setsearchdomains Ethernet domain1 domain2 | tee -a ${LOG}
 
 # Set proxy server environment variables so JAMF binary can see out
 
-logme "Setting proxy cache settings"
-echo "export HTTP_PROXY="proxy.server:port"" >> /etc/profile
-echo "export http_proxy="proxy.server:port"" >> /etc/profile
-echo "export HTTP_PROXY="proxy.server:port"" >> /etc/bashrc
-echo "export http_proxy="proxy.server:port"" >> /etc/bashrc
+	logme "Setting proxy cache settings"
+	echo "export HTTP_PROXY="proxy.server:port"" >> /etc/profile
+	echo "export http_proxy="proxy.server:port"" >> /etc/profile
+	echo "export HTTP_PROXY="proxy.server:port"" >> /etc/bashrc
+	echo "export http_proxy="proxy.server:port"" >> /etc/bashrc
+kill $cdpid
 
 # Default AFP share configuration
+cdmsg "Mac Server Configuration" "Configuring Services" "Stage (27/31). Please Wait."
 
 logme "Configuring AFP service"
 
@@ -898,7 +966,7 @@ load 12 14 14
 #   the variable.
 #   arguments:  location_string
 
-syslocation University of the Arts London.
+syslocation Organisation name here.
 
 # syscontact: The contact information for the administrator
 #   Note that setting this value here means that when trying to
@@ -908,7 +976,7 @@ syslocation University of the Arts London.
 #   the variable.
 #   arguments:  contact_string
 
-syscontact Client Configuration Team <clientconfig@arts.ac.uk>
+syscontact Administrator <admin@email.com>
 
 # sysservices: The proper value for the sysServices object.
 #   arguments:  sysservices_number
@@ -932,57 +1000,71 @@ access MyRWGroup ""      any       noauth    exact  all    all    none
 
 SNMP_CONF
 
+kill $cdpid
+
 # Make sure the services we need are re-enabled
 
-echo "" >> $LOG
-echo $( date )" - Restarting Services" >> $LOG
+cdmsg "Mac Server Configuration" "Restarting Services" "Stage (28/31). Please Wait."
 
-serveradmin start netboot | tee -a ${LOG}
-serveradmin settings info:enableRemoteAdministration = yes | tee -a ${LOG}
-serveradmin settings info:enableSNMP = yes | tee -a ${LOG}
-serveradmin start afp | tee -a ${LOG}
-serveradmin start smb | tee -a ${LOG}
-serveradmin start sharing | tee -a ${LOG}
-serveradmin start web | tee -a ${LOG}
-serveradmin start nfs | tee -a ${LOG}
+	logme "Restarting Services"
+
+	serveradmin start netboot | tee -a ${LOG}
+	serveradmin settings info:enableRemoteAdministration = yes | tee -a ${LOG}
+	serveradmin settings info:enableSNMP = yes | tee -a ${LOG}
+	serveradmin start afp | tee -a ${LOG}
+	serveradmin start smb | tee -a ${LOG}
+	serveradmin start sharing | tee -a ${LOG}
+	serveradmin start web | tee -a ${LOG}
+	serveradmin start nfs | tee -a ${LOG}
+kill $cdpid
 
 # Finally set up the admin user dock the way we like it
 
-logme "Setting up the dock"
+cdmsg "Mac Server Configuration" "Setting up Dock" "Stage (29/31). Please Wait."
+	logme "Setting up the dock"
 
 # Clear the dock!
 
-$DU --remove all --allhomes | tee -a ${LOG}
+	$DU --remove all --allhomes | tee -a ${LOG}
 
 # Now put the right stuff in place!
 
-$DU --add /Applications/Launchpad.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/App\ Store.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/Safari.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/System\ Preferences.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/Server.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Launchpad.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/App\ Store.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Safari.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/System\ Preferences.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Server.app --allhomes | tee -a ${LOG}
 
-$DU --add /Applications/Utilities/Activity\ Monitor.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/Utilities/Console.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/Utilities/Disk\ Utility.app --allhomes | tee -a ${LOG}
-$DU --add /Applications/Utilities/Terminal.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Utilities/Activity\ Monitor.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Utilities/Console.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Utilities/Disk\ Utility.app --allhomes | tee -a ${LOG}
+	$DU --add /Applications/Utilities/Terminal.app --allhomes | tee -a ${LOG}
+kill $cdpid
 
 # Last of all, configure the desktop background!
 
+cdmsg "Mac Server Configuration" "Setting up Desktop Background" "Stage (30/31). Please Wait."
+
 logme "Setting up the desktop background"
 
-sqlite3 /Users/admin/Library/Application\ Support/Dock/desktoppicture.db << EOF
+sqlite3 /Users/$SERVERADMIN/Library/Application\ Support/Dock/desktoppicture.db << EOF
 UPDATE data SET value = "/Library/Desktop Pictures/default_black2560x1600.jpg";
 .quit
 EOF
 
 killall Dock
 
+kill $cdpid
+
 # All done!
+
+cdmsg "Mac Server Configuration" "Server Build Completed!" "Stage (31/31). Pending Reboot."
 
 logme "Completed server build"
 
 # Making sure the JAMF firstrun folder is empty as this occasionally doesn't clear itself up.
 rm -rf /Library/Application\ Support/JAMF/FirstRun/*
+
+kill $cdpid
 
 exit 0
