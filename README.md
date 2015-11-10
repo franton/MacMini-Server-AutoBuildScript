@@ -1,7 +1,7 @@
 Casper Distribution Server Automated Build Script
 =================================================
 
-Version 2.0 - 29th October 2015.
+Version 2.1 - 9th November 2015.
 
 This script is meant to be run as part of a Casper Imaging workflow and will happily set up
 an OS X Server with the following services:
@@ -27,8 +27,6 @@ Areas for Improvement
 =====================
 
 1) Admin password for root and admin accounts should really be passed to this script for security rather than baked in.
-
-3) Feedback on screen outside of the Console logs would be nice. Loceee's cocoadialog integration is forthcoming.
 
 Current Known Issues
 ====================
